@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useMemo } from "react";
 import {
   StyleSheet,
   Text,
@@ -7,6 +7,7 @@ import {
   Platform,
   Alert,
   ActivityIndicator,
+  TextInput,
 } from "react-native";
 import * as Location from "expo-location";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -21,6 +22,7 @@ import {
   BookOpen,
   Library,
   Flag,
+  Search,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import Animated, {
@@ -206,6 +208,18 @@ export default function MapScreen() {
   const [showRoute, setShowRoute] = useState(false);
   const [routeDistance, setRouteDistance] = useState<number | null>(null);
   const [routeDuration, setRouteDuration] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchFocused, setSearchFocused] = useState(false);
+
+  const filteredMarkers = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    const q = searchQuery.toLowerCase();
+    return NSUK_MARKERS.filter(
+      (m) =>
+        m.title.toLowerCase().includes(q) ||
+        m.description.toLowerCase().includes(q)
+    );
+  }, [searchQuery]);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
@@ -259,6 +273,12 @@ export default function MapScreen() {
     }
     setLocationLoading(false);
   }, []);
+
+  const handleSearchSelect = (marker: (typeof NSUK_MARKERS)[0]) => {
+    setSearchQuery("");
+    setSearchFocused(false);
+    handleMarkerPress(marker);
+  };
 
   const handleMarkerPress = (marker: (typeof NSUK_MARKERS)[0]) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -453,6 +473,71 @@ export default function MapScreen() {
             <Crosshair size={22} color="#0B6623" strokeWidth={2.5} />
           )}
         </Pressable>
+      </View>
+
+      <View
+        style={[
+          styles.searchContainer,
+          { top: insets.top + webTopInset + 64 },
+        ]}
+      >
+        <View style={[styles.searchBar, searchFocused && styles.searchBarFocused]}>
+          <Search size={18} color="#9E9E9E" />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search buildings..."
+            placeholderTextColor="#9E9E9E"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => {
+              setTimeout(() => setSearchFocused(false), 200);
+            }}
+            returnKeyType="search"
+          />
+          {searchQuery.length > 0 && (
+            <Pressable
+              onPress={() => {
+                setSearchQuery("");
+                setSearchFocused(false);
+              }}
+              hitSlop={8}
+            >
+              <X size={18} color="#9E9E9E" />
+            </Pressable>
+          )}
+        </View>
+
+        {searchQuery.trim().length > 0 && searchFocused && (
+          <View style={styles.searchResults}>
+            {filteredMarkers.length === 0 ? (
+              <View style={styles.searchEmpty}>
+                <Text style={styles.searchEmptyText}>No buildings found</Text>
+              </View>
+            ) : (
+              filteredMarkers.map((marker) => (
+                <Pressable
+                  key={marker.id}
+                  onPress={() => handleSearchSelect(marker)}
+                  style={({ pressed }) => [
+                    styles.searchResultItem,
+                    pressed && styles.searchResultItemPressed,
+                  ]}
+                >
+                  <View style={styles.searchResultIcon}>
+                    {getMarkerIcon(marker.icon)}
+                  </View>
+                  <View style={styles.searchResultText}>
+                    <Text style={styles.searchResultTitle}>{marker.title}</Text>
+                    <Text style={styles.searchResultDesc} numberOfLines={1}>
+                      {marker.description}
+                    </Text>
+                  </View>
+                </Pressable>
+              ))
+            )}
+          </View>
+        )}
       </View>
 
       {!selectedMarker && (
@@ -790,5 +875,92 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: "Inter_400Regular",
     color: "#5A6B5A",
+  },
+  searchContainer: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    zIndex: 9,
+  },
+  searchBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+    borderWidth: 1.5,
+    borderColor: "transparent",
+  },
+  searchBarFocused: {
+    borderColor: "#0B6623",
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    fontFamily: "Inter_400Regular",
+    color: "#1B2E1B",
+    paddingVertical: 2,
+  },
+  searchResults: {
+    marginTop: 6,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 14,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 6,
+    overflow: "hidden",
+  },
+  searchResultItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F0F2F0",
+  },
+  searchResultItemPressed: {
+    backgroundColor: "#E8F5E9",
+  },
+  searchResultIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: "#0B6623",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  searchResultText: {
+    flex: 1,
+    gap: 1,
+  },
+  searchResultTitle: {
+    fontSize: 15,
+    fontFamily: "Inter_600SemiBold",
+    color: "#1B2E1B",
+  },
+  searchResultDesc: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    color: "#5A6B5A",
+  },
+  searchEmpty: {
+    paddingHorizontal: 14,
+    paddingVertical: 16,
+    alignItems: "center",
+  },
+  searchEmptyText: {
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+    color: "#9E9E9E",
   },
 });
