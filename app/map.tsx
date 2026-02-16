@@ -82,38 +82,75 @@ function getMarkerIcon(icon: string) {
   }
 }
 
-function generateWalkingRoute(
-  from: { latitude: number; longitude: number },
-  to: { latitude: number; longitude: number }
+function decodeOSRMGeometry(
+  encoded: string
 ): { latitude: number; longitude: number }[] {
-  const steps = 20;
   const points: { latitude: number; longitude: number }[] = [];
-  const midLat = (from.latitude + to.latitude) / 2;
-  const midLng = (from.longitude + to.longitude) / 2;
-  const offset = 0.0003;
+  let index = 0;
+  let lat = 0;
+  let lng = 0;
 
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    let lat: number;
-    let lng: number;
+  while (index < encoded.length) {
+    let b: number;
+    let shift = 0;
+    let result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    lat += result & 1 ? ~(result >> 1) : result >> 1;
 
-    if (t <= 0.5) {
-      const s = t * 2;
-      lat = from.latitude + (midLat - from.latitude) * s;
-      lng = from.longitude + (midLng + offset - from.longitude) * s;
-    } else {
-      const s = (t - 0.5) * 2;
-      lat = midLat + (to.latitude - midLat) * s;
-      lng = midLng + offset + (to.longitude - (midLng + offset)) * s;
-    }
+    shift = 0;
+    result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    lng += result & 1 ? ~(result >> 1) : result >> 1;
 
-    points.push({ latitude: lat, longitude: lng });
+    points.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
   }
-
   return points;
 }
 
-function calculateDistance(
+async function fetchWalkingRoute(
+  from: { latitude: number; longitude: number },
+  to: { latitude: number; longitude: number }
+): Promise<{
+  coordinates: { latitude: number; longitude: number }[];
+  distanceMeters: number;
+  durationSeconds: number;
+}> {
+  const url = `https://router.project-osrm.org/route/v1/foot/${from.longitude},${from.latitude};${to.longitude},${to.latitude}?overview=full&geometries=polyline`;
+
+  const response = await globalThis.fetch(url);
+  const data = await response.json();
+
+  if (data.code === "Ok" && data.routes && data.routes.length > 0) {
+    const route = data.routes[0];
+    const coordinates = decodeOSRMGeometry(route.geometry);
+    return {
+      coordinates,
+      distanceMeters: route.distance,
+      durationSeconds: route.duration,
+    };
+  }
+
+  return {
+    coordinates: [from, to],
+    distanceMeters: calculateStraightDistance(
+      from.latitude,
+      from.longitude,
+      to.latitude,
+      to.longitude
+    ),
+    durationSeconds: 0,
+  };
+}
+
+function calculateStraightDistance(
   lat1: number,
   lon1: number,
   lat2: number,
@@ -136,8 +173,8 @@ function formatDistance(meters: number): string {
   return `${(meters / 1000).toFixed(1)}km`;
 }
 
-function formatWalkTime(meters: number): string {
-  const minutes = Math.ceil(meters / 80);
+function formatWalkTime(seconds: number): string {
+  const minutes = Math.ceil(seconds / 60);
   if (minutes < 1) return "< 1 min";
   return `${minutes} min walk`;
 }
@@ -167,6 +204,8 @@ export default function MapScreen() {
   >(null);
   const [locationLoading, setLocationLoading] = useState(false);
   const [showRoute, setShowRoute] = useState(false);
+  const [routeDistance, setRouteDistance] = useState<number | null>(null);
+  const [routeDuration, setRouteDuration] = useState<number | null>(null);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
@@ -226,6 +265,8 @@ export default function MapScreen() {
     setSelectedMarker(marker);
     setShowRoute(false);
     setRouteCoords(null);
+    setRouteDistance(null);
+    setRouteDuration(null);
     mapRef.current?.animateToRegion?.(
       {
         latitude: marker.lat,
@@ -291,31 +332,48 @@ export default function MapScreen() {
       longitude: selectedMarker.lng,
     };
 
-    const route = generateWalkingRoute(currentLocation, dest);
-    setRouteCoords(route);
-    setShowRoute(true);
+    setLocationLoading(true);
+    try {
+      const result = await fetchWalkingRoute(currentLocation, dest);
+      setRouteCoords(result.coordinates);
+      setRouteDistance(result.distanceMeters);
+      setRouteDuration(result.durationSeconds);
+      setShowRoute(true);
 
-    const minLat = Math.min(currentLocation.latitude, dest.latitude);
-    const maxLat = Math.max(currentLocation.latitude, dest.latitude);
-    const minLng = Math.min(currentLocation.longitude, dest.longitude);
-    const maxLng = Math.max(currentLocation.longitude, dest.longitude);
-    const padding = 0.003;
+      const allPoints = result.coordinates;
+      let minLat = allPoints[0].latitude;
+      let maxLat = allPoints[0].latitude;
+      let minLng = allPoints[0].longitude;
+      let maxLng = allPoints[0].longitude;
+      for (const p of allPoints) {
+        if (p.latitude < minLat) minLat = p.latitude;
+        if (p.latitude > maxLat) maxLat = p.latitude;
+        if (p.longitude < minLng) minLng = p.longitude;
+        if (p.longitude > maxLng) maxLng = p.longitude;
+      }
+      const padding = 0.003;
 
-    mapRef.current?.animateToRegion?.(
-      {
-        latitude: (minLat + maxLat) / 2,
-        longitude: (minLng + maxLng) / 2,
-        latitudeDelta: Math.max(maxLat - minLat + padding * 2, 0.005),
-        longitudeDelta: Math.max(maxLng - minLng + padding * 2, 0.005),
-      },
-      800
-    );
+      mapRef.current?.animateToRegion?.(
+        {
+          latitude: (minLat + maxLat) / 2,
+          longitude: (minLng + maxLng) / 2,
+          latitudeDelta: Math.max(maxLat - minLat + padding * 2, 0.005),
+          longitudeDelta: Math.max(maxLng - minLng + padding * 2, 0.005),
+        },
+        800
+      );
+    } catch {
+      Alert.alert("Routing Error", "Could not find a walking route. Please try again.");
+    }
+    setLocationLoading(false);
   };
 
   const handleDismissRoute = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setShowRoute(false);
     setRouteCoords(null);
+    setRouteDistance(null);
+    setRouteDuration(null);
     setSelectedMarker(null);
     mapRef.current?.animateToRegion?.(
       {
@@ -328,15 +386,17 @@ export default function MapScreen() {
     );
   };
 
-  const distance =
+  const displayDistance = routeDistance ?? (
     userLocation && selectedMarker
-      ? calculateDistance(
+      ? calculateStraightDistance(
           userLocation.latitude,
           userLocation.longitude,
           selectedMarker.lat,
           selectedMarker.lng
         )
-      : null;
+      : null
+  );
+  const displayDuration = routeDuration;
 
   return (
     <View style={styles.container}>
@@ -440,15 +500,17 @@ export default function MapScreen() {
             </Pressable>
           </View>
 
-          {distance !== null && (
+          {displayDistance !== null && (
             <View style={styles.distanceRow}>
               <Navigation size={14} color="#0B6623" />
               <Text style={styles.distanceText}>
-                {formatDistance(distance)} away
+                {formatDistance(displayDistance)}{showRoute ? "" : " (straight line)"}
               </Text>
               <View style={styles.distanceDot} />
               <Text style={styles.distanceText}>
-                {formatWalkTime(distance)}
+                {displayDuration !== null && displayDuration > 0
+                  ? formatWalkTime(displayDuration)
+                  : `~${Math.ceil(displayDistance / 80)} min walk`}
               </Text>
             </View>
           )}
