@@ -9,6 +9,7 @@ import {
   time,
   timestamp,
   unique,
+  uuid,
   varchar,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
@@ -43,7 +44,7 @@ export const pathSurfaces = ["paved", "gravel", "dirt"] as const;
  * Drizzle cannot reference the `auth` schema.
  */
 export const profiles = pgTable("profiles", {
-  id: varchar("id").primaryKey(),
+  id: uuid("id").primaryKey(),
   role: varchar("role", { enum: profileRoles }).notNull().default("student"),
   displayName: text("display_name"),
   homeLat: doublePrecision("home_lat"),
@@ -169,7 +170,7 @@ export const favorites = pgTable(
     id: varchar("id")
       .primaryKey()
       .default(sql`gen_random_uuid()`),
-    userId: varchar("user_id")
+    userId: uuid("user_id")
       .notNull()
       .references(() => profiles.id, { onDelete: "cascade" }),
     buildingId: varchar("building_id")
@@ -355,7 +356,7 @@ export const corrections = pgTable(
     buildingId: varchar("building_id").references(() => buildings.id, {
       onDelete: "cascade",
     }),
-    userId: varchar("user_id").references(() => profiles.id),
+    userId: uuid("user_id").references(() => profiles.id),
     field: varchar("field", { enum: correctionFields }).notNull(),
     newValue: text("new_value").notNull(),
     note: text("note"),
@@ -404,7 +405,7 @@ export const auditLog = pgTable(
     id: varchar("id")
       .primaryKey()
       .default(sql`gen_random_uuid()`),
-    actorId: varchar("actor_id"),
+    actorId: uuid("actor_id"),
     action: text("action").notNull(),
     entity: text("entity").notNull(),
     entityId: text("entity_id"),

@@ -13,6 +13,7 @@
  * `profiles.role` is kept in step for display; `app_metadata.role` is what
  * actually authorises writes.
  */
+import "./load-env";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { eq } from "drizzle-orm";
 import { assertDatabaseConfigured, db, pool } from "../server/db";

@@ -8,6 +8,7 @@
  * path nodes by (campus, lat, lng) and path edges by (from, to) — re-running
  * updates in place.
  */
+import "./load-env";
 import { eq } from "drizzle-orm";
 import { assertDatabaseConfigured, db, pool } from "../server/db";
 import { buildings, campuses, entrances, pathEdges, pathNodes } from "@shared/schema";
