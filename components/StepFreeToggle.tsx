@@ -2,7 +2,7 @@ import React, { useCallback } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Accessibility, Check } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
-import colors from "@/constants/colors";
+import { useTheme } from "@/components/ThemeProvider";
 
 interface StepFreeToggleProps {
   value: boolean;
@@ -22,6 +22,8 @@ export function StepFreeToggle({
   onChange,
   disabled = false,
 }: StepFreeToggleProps) {
+  const { theme } = useTheme();
+
   const handlePress = useCallback(() => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onChange(!value);
@@ -37,24 +39,41 @@ export function StepFreeToggle({
       accessibilityHint="Avoids stairs and uses step-free building entrances"
       style={({ pressed }) => [
         styles.button,
-        value && styles.buttonActive,
+        {
+          borderColor: theme.tint,
+          backgroundColor: value ? theme.accent : theme.tintLight,
+        },
         pressed && styles.buttonPressed,
         disabled && styles.buttonDisabled,
       ]}
     >
-      <View style={[styles.iconWrap, value && styles.iconWrapActive]}>
+      <View
+        style={[
+          styles.iconWrap,
+          {
+            backgroundColor: value ? theme.tintLight : theme.background,
+          },
+        ]}
+      >
         {value ? (
-          <Check size={16} color={colors.light.tint} strokeWidth={3} />
+          <Check size={16} color={theme.tint} strokeWidth={3} />
         ) : (
-          <Accessibility size={16} color={colors.light.tint} strokeWidth={2.5} />
+          <Accessibility size={16} color={theme.tint} strokeWidth={2.5} />
         )}
       </View>
       <View style={styles.textWrap}>
-        <Text style={[styles.label, value && styles.labelActive]}>
+        <Text
+          style={[
+            styles.label,
+            { color: value ? theme.background : theme.tint },
+          ]}
+        >
           {value ? "Step-free route on" : "Step-free route"}
         </Text>
         {!value && (
-          <Text style={styles.hint}>Uses ramps and step-free entrances</Text>
+          <Text style={[styles.hint, { color: theme.textSecondary }]}>
+            Uses ramps and step-free entrances
+          </Text>
         )}
       </View>
     </Pressable>
@@ -70,11 +89,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: colors.light.tint,
-    backgroundColor: colors.light.tintLight,
-  },
-  buttonActive: {
-    backgroundColor: colors.light.accent,
   },
   buttonPressed: {
     opacity: 0.75,
@@ -86,12 +100,8 @@ const styles = StyleSheet.create({
     width: 30,
     height: 30,
     borderRadius: 10,
-    backgroundColor: colors.light.background,
     alignItems: "center",
     justifyContent: "center",
-  },
-  iconWrapActive: {
-    backgroundColor: colors.light.tintLight,
   },
   textWrap: {
     flex: 1,
@@ -100,14 +110,9 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 15,
     fontFamily: "Inter_600SemiBold",
-    color: colors.light.tint,
-  },
-  labelActive: {
-    color: colors.light.background,
   },
   hint: {
     fontSize: 12,
     fontFamily: "Inter_400Regular",
-    color: colors.light.textSecondary,
   },
 });

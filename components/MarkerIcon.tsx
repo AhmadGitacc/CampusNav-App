@@ -1,11 +1,28 @@
 import React from "react";
 import { Building2, BookOpen, Library, Flag, MapPin } from "lucide-react-native";
-import colors from "@/constants/colors";
+import { useTheme } from "@/components/ThemeProvider";
 import type { MarkerIconName } from "@shared/types";
 
-const props = { size: 16, color: colors.light.white, strokeWidth: 2.5 };
+/**
+ * The glyph that stands for a building category.
+ *
+ * Rendered inside a filled `tint` circle everywhere it is used, so the icon
+ * colour is always the on-tint foreground rather than the marker's background —
+ * which is why this is `onTint` and not `white`, even though the two are the
+ * same colour in both palettes today.
+ */
+export function MarkerIcon({
+  icon,
+  size = 16,
+  strokeWidth = 2.5,
+}: {
+  icon: MarkerIconName | string;
+  size?: number;
+  strokeWidth?: number;
+}) {
+  const { theme } = useTheme();
+  const props = { size, color: theme.onTint, strokeWidth };
 
-export function MarkerIcon({ icon }: { icon: MarkerIconName | string }) {
   switch (icon) {
     case "building":
       return <Building2 {...props} />;

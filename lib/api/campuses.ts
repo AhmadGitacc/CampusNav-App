@@ -21,7 +21,7 @@ function toCampus(row: Record<string, unknown>): Campus {
   };
 }
 
-function toBuilding(row: Record<string, unknown>): Building {
+export function toBuilding(row: Record<string, unknown>): Building {
   return {
     id: row.id as string,
     campusId: row.campus_id as string,
@@ -96,6 +96,9 @@ export function useBuildings(campusSlug: string | undefined) {
         .from("buildings")
         .select("*")
         .eq("campus_id", campus.data!.id)
+        // Soft-deleted rows stay in the table so their entrances, path edges
+        // and moderation history keep their keys — they just aren't places.
+        .is("deleted_at", null)
         .order("name")) as QueryResult<Record<string, unknown>[]>;
       return (await unwrap(result)).map(toBuilding);
     },

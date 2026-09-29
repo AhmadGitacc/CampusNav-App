@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   StyleSheet,
   Text,
@@ -18,15 +18,24 @@ import Animated, {
   FadeInDown,
   FadeInUp,
 } from "react-native-reanimated";
-import colors from "@/constants/colors";
+import { useSystemBars, useTheme } from "@/components/ThemeProvider";
+import { brandGradient, actionGradient } from "@/constants/gradients";
+import type { Theme } from "@/constants/colors";
 import { useAuth } from "@/lib/useAuth";
+import { useRole } from "@/lib/useRole";
 import { useCampuses } from "@/lib/api/campuses";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { SEED_CAMPUSES } from "@/lib/data/campus-fallback";
 
 export default function LandingScreen() {
   const insets = useSafeAreaInsets();
+  const { theme, scheme } = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
+  // The hero gradient reaches the bottom of the screen, so the nav bar has to
+  // match its darkest stop rather than the page background.
+  useSystemBars(brandGradient(scheme)[0]);
   const { user, configured, signOut } = useAuth();
+  const { isAdmin } = useRole();
   const [selectedCampus, setSelectedCampus] = useState<string | null>(null);
   const [showPicker, setShowPicker] = useState(false);
 
@@ -84,7 +93,7 @@ export default function LandingScreen() {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
       <LinearGradient
-        colors={["#054A14", "#0B6623", "#0D7A2B"]}
+        colors={brandGradient(scheme)}
         style={StyleSheet.absoluteFill}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
@@ -115,7 +124,7 @@ export default function LandingScreen() {
           style={styles.header}
         >
           <View style={styles.iconContainer}>
-            <MapPin size={32} color="#FFFFFF" strokeWidth={2.5} />
+            <MapPin size={32} color={theme.onTint} strokeWidth={2.5} />
           </View>
           <Text style={styles.title}>Campus Navigator</Text>
           <Text style={styles.subtitle}>
@@ -150,7 +159,7 @@ export default function LandingScreen() {
             <View style={styles.dropdownContent}>
               <MapPin
                 size={18}
-                color={selected ? "#0B6623" : "#9E9E9E"}
+                color={selected ? theme.tint : theme.gray}
                 strokeWidth={2}
               />
               <Text
@@ -167,7 +176,7 @@ export default function LandingScreen() {
                     : "Choose a campus..."}
               </Text>
             </View>
-            <ChevronDown size={20} color="#9E9E9E" />
+            <ChevronDown size={20} color={theme.gray} />
           </Pressable>
 
           {erroredCampuses && (
@@ -185,7 +194,7 @@ export default function LandingScreen() {
                   pressed && styles.retryButtonPressed,
                 ]}
               >
-                <RefreshCw size={14} color="#0B6623" strokeWidth={2.5} />
+                <RefreshCw size={14} color={theme.tint} strokeWidth={2.5} />
                 <Text style={styles.retryText}>Retry</Text>
               </Pressable>
             </View>
@@ -196,7 +205,7 @@ export default function LandingScreen() {
               entering={FadeInUp.duration(300)}
               style={styles.selectedInfo}
             >
-              <Navigation size={14} color="#0B6623" />
+              <Navigation size={14} color={theme.tint} />
               <Text style={styles.selectedLocation}>
                 {selected.location}
               </Text>
@@ -214,9 +223,7 @@ export default function LandingScreen() {
           >
             <LinearGradient
               colors={
-                selected
-                  ? ["#0B6623", "#0D7A2B"]
-                  : ["#C8D6C8", "#C8D6C8"]
+                selected ? actionGradient(scheme) : [theme.tintDisabled, theme.tintDisabled]
               }
               style={styles.exploreGradient}
               start={{ x: 0, y: 0 }}
@@ -224,7 +231,7 @@ export default function LandingScreen() {
             >
               <Navigation
                 size={20}
-                color={selected ? "#FFFFFF" : "#9E9E9E"}
+                color={selected ? theme.onTint : theme.gray}
               />
               <Text
                 style={[
@@ -250,6 +257,26 @@ export default function LandingScreen() {
               </Text>
             </Pressable>
           )}
+
+          {/* Only rendered for an admin, and only as a quiet text link — the CMS
+              is a tool for staff, not a destination a student is looking for.
+              `useRole` reads the JWT claim, so this never flashes for a user
+              whose profile merely claims admin. */}
+          {isAdmin && (
+            <Pressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push("/admin");
+              }}
+              style={({ pressed }) => [
+                styles.accountLink,
+                pressed && styles.accountLinkPressed,
+              ]}
+              accessibilityRole="link"
+            >
+              <Text style={styles.accountLinkText}>Admin · manage campus content</Text>
+            </Pressable>
+          )}
         </Animated.View>
 
         <Animated.View
@@ -258,12 +285,12 @@ export default function LandingScreen() {
         >
           <View style={styles.featureRow}>
             <View style={styles.featureItem}>
-              <MapPin size={16} color="rgba(255,255,255,0.7)" />
+              <MapPin size={16} color={theme.onTintMuted} />
               <Text style={styles.featureText}>Campus Markers</Text>
             </View>
             <View style={styles.featureDot} />
             <View style={styles.featureItem}>
-              <Navigation size={16} color="rgba(255,255,255,0.7)" />
+              <Navigation size={16} color={theme.onTintMuted} />
               <Text style={styles.featureText}>Walking Routes</Text>
             </View>
           </View>
@@ -308,7 +335,7 @@ export default function LandingScreen() {
                     <MapPin
                       size={18}
                       color={
-                        selectedCampus === item.id ? "#0B6623" : "#5A6B5A"
+                        selectedCampus === item.id ? theme.tint : theme.textSecondary
                       }
                     />
                     <View style={styles.campusItemText}>
@@ -327,7 +354,7 @@ export default function LandingScreen() {
                     </View>
                   </View>
                   {selectedCampus === item.id && (
-                    <Check size={20} color="#0B6623" />
+                    <Check size={20} color={theme.tint} />
                   )}
                 </Pressable>
               )}
@@ -339,15 +366,20 @@ export default function LandingScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (theme: Theme) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#054A14",
+    backgroundColor: theme.tintDark,
   },
   patternOverlay: {
     ...StyleSheet.absoluteFillObject,
     overflow: "hidden",
   },
+  // The four washes below are the only literal colours left in the app. They are
+  // decorative low-alpha white over the brand hero, which is dark green in *both*
+  // schemes, so they are not theme values — a token here would imply a
+  // light/dark decision that does not exist. `iconContainer` has to stay an rgba
+  // rather than `opacity`, because the MapPin inside it must not fade with it.
   circle1: {
     position: "absolute",
     width: 300,
@@ -396,22 +428,22 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontFamily: "Inter_700Bold",
-    color: "#FFFFFF",
+    color: theme.onTint,
     textAlign: "center",
   },
   subtitle: {
     fontSize: 15,
     fontFamily: "Inter_400Regular",
-    color: "rgba(255,255,255,0.7)",
+    color: theme.onTintMuted,
     textAlign: "center",
     lineHeight: 22,
   },
   card: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.surface,
     borderRadius: 20,
     padding: 24,
     gap: 16,
-    shadowColor: "#000",
+    shadowColor: theme.shadow,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.15,
     shadowRadius: 24,
@@ -419,8 +451,8 @@ const styles = StyleSheet.create({
   },
   guestBadge: {
     alignSelf: "flex-start",
-    backgroundColor: "#E8F5E9",
-    color: "#0B6623",
+    backgroundColor: theme.tintLight,
+    color: theme.tint,
     fontSize: 12,
     fontFamily: "Inter_600SemiBold",
     paddingHorizontal: 12,
@@ -431,12 +463,12 @@ const styles = StyleSheet.create({
   cardTitle: {
     fontSize: 22,
     fontFamily: "Inter_700Bold",
-    color: "#1B2E1B",
+    color: theme.text,
   },
   cardDescription: {
     fontSize: 14,
     fontFamily: "Inter_400Regular",
-    color: "#5A6B5A",
+    color: theme.textSecondary,
     lineHeight: 20,
     marginTop: -8,
   },
@@ -445,15 +477,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     borderWidth: 1.5,
-    borderColor: "#D5E0D5",
+    borderColor: theme.border,
     borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 14,
-    backgroundColor: "#F5F7F5",
+    backgroundColor: theme.surfacePressed,
   },
   dropdownPressed: {
-    borderColor: "#0B6623",
-    backgroundColor: "#E8F5E9",
+    borderColor: theme.tint,
+    backgroundColor: theme.tintLight,
   },
   dropdownContent: {
     flexDirection: "row",
@@ -464,18 +496,18 @@ const styles = StyleSheet.create({
   dropdownText: {
     fontSize: 15,
     fontFamily: "Inter_500Medium",
-    color: "#1B2E1B",
+    color: theme.text,
     flex: 1,
   },
   dropdownPlaceholder: {
-    color: "#9E9E9E",
+    color: theme.gray,
   },
   errorRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 10,
-    backgroundColor: "#E8F5E9",
+    backgroundColor: theme.tintLight,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -484,7 +516,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
     fontFamily: "Inter_400Regular",
-    color: "#5A6B5A",
+    color: theme.textSecondary,
     lineHeight: 18,
   },
   retryButton: {
@@ -494,7 +526,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 10,
     borderRadius: 10,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.surface,
   },
   retryButtonPressed: {
     opacity: 0.7,
@@ -502,7 +534,7 @@ const styles = StyleSheet.create({
   retryText: {
     fontSize: 13,
     fontFamily: "Inter_600SemiBold",
-    color: "#0B6623",
+    color: theme.tint,
   },
   modalEmpty: {
     paddingHorizontal: 20,
@@ -512,7 +544,7 @@ const styles = StyleSheet.create({
   modalEmptyText: {
     fontSize: 14,
     fontFamily: "Inter_400Regular",
-    color: "#9E9E9E",
+    color: theme.gray,
   },
   selectedInfo: {
     flexDirection: "row",
@@ -524,7 +556,7 @@ const styles = StyleSheet.create({
   selectedLocation: {
     fontSize: 13,
     fontFamily: "Inter_400Regular",
-    color: "#0B6623",
+    color: theme.tint,
   },
   exploreButton: {
     borderRadius: 14,
@@ -548,10 +580,10 @@ const styles = StyleSheet.create({
   exploreText: {
     fontSize: 16,
     fontFamily: "Inter_600SemiBold",
-    color: "#FFFFFF",
+    color: theme.onTint,
   },
   exploreTextDisabled: {
-    color: "#9E9E9E",
+    color: theme.gray,
   },
   accountLink: {
     alignItems: "center",
@@ -564,7 +596,7 @@ const styles = StyleSheet.create({
   accountLinkText: {
     fontSize: 14,
     fontFamily: "Inter_500Medium",
-    color: colors.light.tint,
+    color: theme.tint,
   },
   footer: {
     alignItems: "center",
@@ -583,22 +615,22 @@ const styles = StyleSheet.create({
   featureText: {
     fontSize: 13,
     fontFamily: "Inter_400Regular",
-    color: "rgba(255,255,255,0.6)",
+    color: theme.onTintMuted,
   },
   featureDot: {
     width: 4,
     height: 4,
     borderRadius: 2,
-    backgroundColor: "rgba(255,255,255,0.3)",
+    backgroundColor: theme.onTintMuted,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: theme.scrim,
     justifyContent: "center",
     paddingHorizontal: 24,
   },
   modalContent: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.surface,
     borderRadius: 20,
     paddingVertical: 20,
     maxHeight: 400,
@@ -606,7 +638,7 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 18,
     fontFamily: "Inter_600SemiBold",
-    color: "#1B2E1B",
+    color: theme.text,
     paddingHorizontal: 20,
     marginBottom: 12,
   },
@@ -618,10 +650,10 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   campusItemPressed: {
-    backgroundColor: "#F5F7F5",
+    backgroundColor: theme.surfacePressed,
   },
   campusItemSelected: {
-    backgroundColor: "#E8F5E9",
+    backgroundColor: theme.tintLight,
   },
   campusItemContent: {
     flexDirection: "row",
@@ -636,15 +668,15 @@ const styles = StyleSheet.create({
   campusName: {
     fontSize: 15,
     fontFamily: "Inter_500Medium",
-    color: "#1B2E1B",
+    color: theme.text,
   },
   campusNameSelected: {
-    color: "#0B6623",
+    color: theme.tint,
     fontFamily: "Inter_600SemiBold",
   },
   campusLocation: {
     fontSize: 13,
     fontFamily: "Inter_400Regular",
-    color: "#5A6B5A",
+    color: theme.textSecondary,
   },
 });

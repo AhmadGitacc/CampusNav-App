@@ -2,6 +2,8 @@ import { sql } from "drizzle-orm";
 import {
   boolean,
   doublePrecision,
+  index,
+  jsonb,
   pgTable,
   text,
   time,
@@ -127,6 +129,12 @@ export const buildings = pgTable("buildings", {
     .default(sql`ARRAY[]::text[]`),
   openingHours: text("opening_hours"),
   isAccessibleEntry: boolean("is_accessible_entry").notNull().default(true),
+  /**
+   * Soft delete (Feature 10). Public reads filter on `deleted_at is null`, so a
+   * withdrawn building disappears from the map without taking its entrances,
+   * path edges or audit history with it.
+   */
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),
@@ -147,6 +155,37 @@ export type BuildingRow = typeof buildings.$inferSelect;
 export type InsertCampus = z.infer<typeof insertCampusSchema>;
 export type InsertBuilding = z.infer<typeof insertBuildingSchema>;
 export type BuildingCategory = (typeof buildingCategories)[number];
+
+// ─── Favorites (Feature 7) ────────────────────────────────────────────────────
+
+/**
+ * A saved building, scoped to a specific user. RLS (`auth.uid() = user_id`)
+ * means only the row's owner can read or mutate it — see
+ * supabase/migrations/0004_favorites.sql.
+ */
+export const favorites = pgTable(
+  "favorites",
+  {
+    id: varchar("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    userId: varchar("user_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    buildingId: varchar("building_id")
+      .notNull()
+      .references(() => buildings.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    // Tapping the heart twice updates the row, it never duplicates it.
+    unique("favorites_user_building").on(table.userId, table.buildingId),
+  ],
+);
+
+export type FavoriteRow = typeof favorites.$inferSelect;
 
 // ─── Path graph (Feature 5) ────────────────────────────────────────────────────
 //
@@ -277,3 +316,163 @@ export const insertRouteSchema = z.object({
 
 export type RouteRequest = z.infer<typeof insertRouteSchema>;
 export type RouteOptions = z.infer<typeof routeOptionsSchema>;
+
+// ─── Public corrections (Feature 10) ──────────────────────────────────────────
+
+export const correctionStatuses = ["pending", "approved", "rejected"] as const;
+
+/**
+ * The `buildings` columns a member of the public is allowed to propose a change
+ * to. A correction can only ever touch one of these, so approving a row can
+ * never write to an arbitrary column.
+ */
+export const correctionFields = [
+  "name",
+  "description",
+  "category",
+  "lat",
+  "lng",
+  "opening_hours",
+  "aliases",
+] as const;
+
+export type CorrectionField = (typeof correctionFields)[number];
+export type CorrectionStatus = (typeof correctionStatuses)[number];
+
+/**
+ * A proposed fix from a user, reviewed by an admin (Feature 10).
+ *
+ * `buildingId` cascades on delete so corrections never outlive the thing they
+ * were about; `userId` is a plain reference with no cascade, so deleting an
+ * account must not delete the moderation history attached to it.
+ */
+export const corrections = pgTable(
+  "corrections",
+  {
+    id: varchar("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    buildingId: varchar("building_id").references(() => buildings.id, {
+      onDelete: "cascade",
+    }),
+    userId: varchar("user_id").references(() => profiles.id),
+    field: varchar("field", { enum: correctionFields }).notNull(),
+    newValue: text("new_value").notNull(),
+    note: text("note"),
+    status: varchar("status", { enum: correctionStatuses })
+      .notNull()
+      .default("pending"),
+    /** Why an admin approved or rejected it — surfaced in the queue. */
+    reviewNote: text("review_note"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  },
+  (table) => [
+    // The queue is always "pending first, newest first", filtered on status.
+    index("corrections_status_created_at").on(table.status, table.createdAt),
+  ],
+);
+
+export const insertCorrectionSchema = z.object({
+  buildingId: z.string().min(1, "Pick a building").max(64),
+  field: z.enum(correctionFields, {
+    errorMap: () => ({ message: "Pick a field to correct" }),
+  }),
+  newValue: z
+    .string()
+    .trim()
+    .min(1, "Enter the corrected value")
+    .max(500),
+  note: z.string().trim().max(500).optional(),
+});
+
+export type InsertCorrection = z.infer<typeof insertCorrectionSchema>;
+export type CorrectionRow = typeof corrections.$inferSelect;
+
+// ─── Audit log (Feature 10) ───────────────────────────────────────────────────
+
+/**
+ * Append-only trail of every content edit. Written by the admin mutations in
+ * `lib/api/admin.ts` and read back on the dashboard; the SQL trigger in
+ * migration 0005 is the belt-and-braces half for writes made outside the app.
+ */
+export const auditLog = pgTable(
+  "audit_log",
+  {
+    id: varchar("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    actorId: varchar("actor_id"),
+    action: text("action").notNull(),
+    entity: text("entity").notNull(),
+    entityId: text("entity_id"),
+    diff: jsonb("diff"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    // The dashboard shows the most recent entries, always.
+    index("audit_log_created_at").on(table.createdAt),
+  ],
+);
+
+export type AuditLogRow = typeof auditLog.$inferSelect;
+
+// ─── Admin building form (Feature 10) ─────────────────────────────────────────
+
+/** Marker icon keys, mirroring the `MarkerIconName` union in shared/types.ts. */
+export const markerIconNames = [
+  "building",
+  "book",
+  "library",
+  "flag",
+  "map-pin",
+] as const;
+
+/**
+ * A coordinate from a spreadsheet cell.
+ *
+ * `z.coerce.number()` alone is a trap here: it runs `Number("")`, which is `0`,
+ * so a row with a blank latitude would import a building at Null Island instead
+ * of being reported as a broken row. Rejecting blank first costs one line and
+ * keeps an empty cell an error a human can see.
+ */
+const coordinate = (label: string, limit: number) =>
+  z
+    .union([z.number(), z.string()])
+    .refine((value) => typeof value === "number" || value.trim().length > 0, {
+      message: `${label} is required`,
+    })
+    .transform((value) => (typeof value === "number" ? value : Number(value.trim())))
+    .refine((value) => Number.isFinite(value), {
+      message: `${label} must be a number`,
+    })
+    .refine((value) => Math.abs(value) <= limit, {
+      message: `${label} must be between -${limit} and ${limit}`,
+    });
+
+/**
+ * The building payload an import row or an admin form submits.
+ *
+ * `campusId` is omitted on purpose: an import targets one campus per run, and a
+ * form is opened from inside that campus. Callers supply the resolved uuid.
+ */
+export const importBuildingSchema = z.object({
+  name: z.string().trim().min(1, "Name is required").max(120),
+  description: z.string().trim().max(500).default(""),
+  category: z
+    .enum(buildingCategories, { errorMap: () => ({ message: "Unknown category" }) })
+    .default("faculty"),
+  lat: coordinate("Latitude", 90),
+  lng: coordinate("Longitude", 180),
+  icon: z.enum(markerIconNames).default("map-pin"),
+  aliases: z.array(z.string().trim().min(1)).max(12).default([]),
+  openingHours: z.string().trim().max(120).nullish(),
+  isAccessibleEntry: z.boolean().default(true),
+});
+
+export type ImportBuilding = z.infer<typeof importBuildingSchema>;
+

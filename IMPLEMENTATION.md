@@ -25,9 +25,9 @@ Detailed build guide for selected features from `FEATURES.md`:
 | **§3 Offline caching (M3)** | ✅ **Code complete** — needs a device offline pass |
 | §4 Turn-by-turn navigation (M4) | ✅ **Code complete** — needs a device walk-through |
 | **§5 Accessible routing (M5)** | ✅ **Code complete** — awaiting `db:push` + `db:seed` |
-| §7 Favorites (M3) | ⬜ Next |
-| §10 Admin CMS (M3) | ⬜ Pending |
-| §13 Dark mode (M6) | ⬜ Pending |
+| §7 Favorites (M3) | ✅ **Code complete** — awaiting `db:push` + `db:seed` |
+| §10 Admin CMS (M3) | ✅ **Code complete** — awaiting `db:push` + migration 0005 + `admin:grant` |
+| **§13 Dark mode (M6)** | ✅ **Code complete** — needs a device dark-mode pass |
 
 ---
 
@@ -1044,6 +1044,50 @@ Persist only after the user *selects* a result (not on every keystroke).
 
 **Deliverables:** heart toggle with optimistic UI, favorites screen, recents dropdown, one-tap home.
 
+### ✅ §6 Implementation record
+
+The map's existing single `[Locate]` top button became a `[Star][Home][Locate]` cluster; favorites and home both share the existing bottom sheet + navigation hook, so no new overlay states were needed.
+
+| Item | Status | Where |
+| --- | --- | --- |
+| `favorites` table (`user_id` → profiles, `building_id` → buildings, unique pair, cascade deletes) | ✅ | `shared/schema.ts` |
+| RLS `own favorites` (all operations, `auth.uid() = user_id`) | ✅ | `supabase/migrations/0004_favorites.sql` |
+| `useFavorites` — PostgREST embedded `buildings` join, disabled for guests (→ `undefined`), 60s staleTime | ✅ | `lib/api/favorites.ts` |
+| Optimistic `useToggleFavorite` — takes the full `Building` so the optimistic row is complete, rollback on error | ✅ | `lib/api/favorites.ts` |
+| `toBuilding` exported for the join mapping | ✅ | `lib/api/campuses.ts` |
+| Recents store — AsyncStorage, dedupe by id, cap 10, most recent first, persisted only on selection | ✅ | `lib/recent-searches.ts` |
+| Home location — AsyncStorage source of truth + `profiles.home_lat/home_lng` mirror | ✅ | `lib/home-location.ts` |
+| Favorites screen — guest CTA, loading/error/empty, rows with category caption, tap → recents + map | ✅ | `app/favorites.tsx`, `app/_layout.tsx` |
+| `buildingId` param auto-selects its marker once on mount (one-shot ref against recreated navigation) | ✅ | `app/map.tsx` |
+| Recents dropdown above live results ("Recent" label + clear `X`, `Clock` rows) when focused + empty query | ✅ | `app/map.tsx` |
+| Heart in the sheet header (hidden unless the marker is a DB building); guest tap → "Sign in to save favorites" | ✅ | `app/map.tsx` |
+| Home press → synthetic marker + `navigation.start()` (deferred one effect); long-press → confirm + `setHome` | ✅ | `app/map.tsx` |
+
+**Deliberate deviations from the plan**
+
+1. **Favorites navigates with `router.replace` + params — not `router.back()` + navigate.** Expo Router's `navigate` pops to the existing `/map` screen without re-reading params, so the `buildingId` auto-select would never re-fire. A replaced instance mounts fresh, reads the param, and selects. The map already renders from `params` (slug + lat/lng), so a bare deep link works the same way.
+2. **The heart is gated on the marker being a DB building** (`buildings.some(b => b.id === marker.id)`), not on any selection. Guest/fallback markers are slugs (`nsuk-senate`) that never exist in `buildings`, so the synthetic "Home" marker and fallback data never show a heart that can't do anything.
+3. **Guests still see the heart when a DB-backed building is selected** — it opens a "Sign in to save favorites" alert, which is the cleanest way to discover the feature without a session (§6.1 wanted it hidden).
+4. **`useFavorites` returns `undefined` while disabled** rather than an empty array — lets the screen distinguish "signed out" (CTA) from "no favorites" (empty state).
+5. **Home long-press reuses the locate flow**: it resolves `getCurrentUserLocation()` *then* confirms, so the saved point is always fresh and permission-gated. The header "ready" flag from `useHomeLocation` gates the press handler so a fast tap before the AsyncStorage read can't show a false "No home saved yet".
+
+**Verification**
+
+| Check | Result |
+| --- | --- |
+| `npx tsc --noEmit` | ✅ clean (0 errors) |
+| `npm run lint` | ✅ clean (0 errors, 0 warnings) |
+| `npx expo export --platform web` | ✅ bundles — favorites screen + heart/recents paths included |
+| Typed routes regenerated | ✅ `/favorites` present in `router.d.ts` href unions (short-lived `expo start`; the §6.3 `router.push("/favorites")` and `router.replace({ pathname: "/map", ... })` calls typecheck) |
+
+**To activate (requires your Supabase account)**
+
+```bash
+cp .env.example .env      # DATABASE_URL, DIRECT_URL, EXPO_PUBLIC_* from §1
+npm run db:push           # creates the favorites table
+npx supabase db push      # 0004 — favorites RLS policy
+```
+
 ---
 
 ## 7. Feature 10 — Admin CMS / contribution workflow
@@ -1140,6 +1184,82 @@ export const auditLog = pgTable("audit_log", {
 Write explicitly in each admin mutation (or a Postgres trigger `trg_audit_buildings` for belt-and-braces). Display read-only on the dashboard.
 
 **Deliverables:** role-gated admin area, CRUD + import + moderation, audit trail.
+
+### ✅ §7 Implementation record
+
+The admin area is a normal Expo Router subtree at `app/admin/`, not a separate web surface. The plan's "web-first admin" is satisfied by every screen being plain React Native with no map dependency — they render identically on web and on device, which is what an admin carrying a phone around a campus actually needs.
+
+| Item | Status | Where |
+| --- | --- | --- |
+| `buildings.deleted_at` (soft delete for unpublish) | ✅ | `shared/schema.ts`, `supabase/migrations/0005_admin_cms.sql` |
+| `corrections` + `audit_log` tables, `insertCorrectionSchema`, `importBuildingSchema`, `markerIconNames` | ✅ | `shared/schema.ts` |
+| `correctionFields` — the single whitelist of correctable columns | ✅ | `shared/schema.ts` |
+| Correction RLS: insert own/`user_id is null`, read own, admin read + moderate | ✅ | `supabase/migrations/0005_admin_cms.sql` |
+| Audit RLS: admin read, admin insert, **no** update/delete policy | ✅ | `supabase/migrations/0005_admin_cms.sql` |
+| `trg_audit_buildings` — insert/update/delete with a per-column `changed` diff | ✅ | `supabase/migrations/0005_admin_cms.sql` |
+| `trg_audit_corrections` — status transitions only | ✅ | `supabase/migrations/0005_admin_cms.sql` |
+| `useRole` — reads `app_metadata.role` only, never `profiles.role` | ✅ | `lib/useRole.ts` |
+| `npm run admin:grant` — Admin API writes `app_metadata`, mirrors `profiles.role`, `--revoke` | ✅ | `scripts/make-admin.ts`, `package.json` |
+| `app/admin/_layout.tsx` — client-side gate, bounces non-admins, provider for the selected campus | ✅ | `app/admin/_layout.tsx` |
+| `useAdminBuildings` (includes soft-deleted), `useAdminStats`, `useAdminAudit` | ✅ | `lib/api/admin.ts` |
+| `useCreateBuilding`, `useUpdateBuilding`, `useSetBuildingPublished`, `useImportBuildings` (chunks of 500) | ✅ | `lib/api/admin.ts` |
+| CSV parser — quoted fields, embedded commas/newlines, doubled quotes, BOM, CRLF, header aliases, per-row issues with 1-based file lines | ✅ | `lib/import/csv.ts` |
+| GeoJSON parser — Point-only, `[lng, lat]` reordering, `properties` coercion, rejects other geometries by index | ✅ | `lib/import/geojson.ts` |
+| Correction value coercion — one place, shared by the modal and the queue | ✅ | `lib/import/correction-values.ts` |
+| `useSubmitCorrection` (guest-safe), `useCorrections` (joined to buildings), `useModerateCorrection` | ✅ | `lib/api/corrections.ts` |
+| BuildingForm — create and edit share it, validated by `importBuildingSchema` | ✅ | `components/BuildingForm.tsx` |
+| Dashboard — 3 stat tiles, 3 action rows, read-only audit list | ✅ | `app/admin/index.tsx` |
+| Buildings list — search over name + aliases, publish toggle, unpublished rows greyed but visible | ✅ | `app/admin/buildings.tsx` |
+| New / edit screens, edit screen carries its own publish toggle | ✅ | `app/admin/buildings/new.tsx`, `app/admin/buildings/[id].tsx` |
+| Import screen — format tabs, paste area, review-then-commit, issues listed by line | ✅ | `app/admin/import.tsx` |
+| Moderation queue — pending/approved/rejected tabs, now → proposed diff, validation warning, confirm-on-approve | ✅ | `app/admin/corrections.tsx` |
+| Public "Report wrong info" in the marker sheet, only for DB buildings | ✅ | `app/map.tsx`, `components/ReportCorrectionModal.tsx` |
+| Quiet admin link on the landing screen, admin-only | ✅ | `app/index.tsx` |
+| `/admin` registered in the root `Stack` | ✅ | `app/_layout.tsx` |
+| Public `useBuildings` excludes soft-deleted rows | ✅ | `lib/api/campuses.ts` |
+| `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` documented | ✅ | `.env.example` |
+
+**Deliberate deviations from the plan**
+
+1. **The trigger is the only writer to `audit_log`; the client writes nothing.** §7.7 offered "explicit writes *or* a trigger". Doing both would double every entry, and the trigger strictly sees more — it also captures edits made from the SQL editor or a script, and it computes the `changed` diff server-side where the old and new row are both to hand. `lib/api/admin.ts` documents this at the top so nobody re-adds the writes.
+2. **Approval is two ordered writes, not one transaction.** A PostgREST client has no transaction, and the plan's "inside a transaction" was written for the Express-admin option that was dropped. The building update goes first; if it fails, the report stays `pending` and is retryable, rather than being marked `approved` against a value that never landed. Rejecting is a single write.
+3. **No `apply_correction` RPC.** It would be the cleaner way to make approval atomic, but it needs `SECURITY DEFINER` plus its own admin guard, which is a second copy of the role check to keep in sync with the RLS policies. Two ordered writes with the failure ordering documented is a fair trade for one source of truth on "is this an admin".
+4. **Import is paste-only, no file picker.** `expo-document-picker` is not installed and `expo-image-picker` cannot read a `.csv`. Drag-and-drop and paste both work on web, and the paste area is the same on device — the alternative was a dependency and a second path to a file the parser can't explain.
+5. **The campus is a context in the admin layout, not a route param.** Every CMS screen works on one campus at a time and the import has no campus column, so the target is chosen once and remembered for the session. A query parameter would have to be threaded through every admin link, and it would put the staff tool on the public URL bar.
+6. **Unpublished buildings stay in the admin list, greyed, rather than moving to an archive tab.** The operation people need most is undo, and a row that has left the screen can't be undone from it.
+7. **`importBuildingSchema` rejects a blank coordinate instead of coercing it to `0`.** `z.coerce.number()` runs `Number("")` → `0`, so a spreadsheet row with an empty latitude would have imported a building at Null Island and validated cleanly. Found by the parser checks; `shared/schema.ts` now refuses blank first.
+8. **Guest corrections are sent with `user_id: null`,** not the caller's id. The RLS insert policy accepts null deliberately, so a signed-in reporter and a guest produce the same row shape and nothing depends on the session being present.
+9. **Event CRUD is out of scope.** There is no `events` table in §2, so §10 covers buildings, corrections, import and audit. Events would need the schema first.
+
+**Verification**
+
+| Check | Result |
+| --- | --- |
+| `npx tsc --noEmit` | ✅ clean (0 errors) |
+| `npm run lint` | ✅ clean (0 errors, 0 warnings) |
+| `npx expo export --platform web` | ✅ bundles — all 7 admin screens + the correction modal included |
+| Typed routes regenerated | ✅ `/admin/*` present in `router.d.ts`; the `router.push` calls typecheck |
+| Parser checks (32 assertions, throwaway script, since the repo has no test runner) | ✅ all pass — CSV quoting/BOM/CRLF/multiline fields/header aliases/bad rows, GeoJSON `[lng, lat]` ordering and non-Point rejection, correction coercion bounds |
+
+**Not verified — needs a live database**
+
+- `supabase/migrations/0005_admin_cms.sql` has never been executed. The `plpgsql` bodies, the `jsonb_each` join in the diff, and the RLS policies are unproven against a real Postgres.
+- The audit trigger's interaction with the buildings write in the approval path is unexercised.
+- `.env` service-role handling in `scripts/make-admin.ts` is unrun.
+- No admin has ever opened the CMS.
+
+**To activate (requires your Supabase account)**
+
+```bash
+npm run db:push            # buildings.deleted_at, corrections, audit_log
+npx supabase db push       # 0005 — RLS policies + audit triggers
+npm run db:seed            # only if seeding a fresh campus
+
+npm run admin:grant you@example.com    # writes app_metadata.role = 'admin'
+npm run admin:grant you@example.com -- --revoke
+```
+
+Then sign out and back in: `app_metadata` is baked into the JWT at sign-in, so a token minted before the grant will fail every policy until it is refreshed.
 
 ---
 
@@ -1253,6 +1373,40 @@ Put in `constants/gradients.ts` as `GRADIENTS.brand.light/dark` and read from `u
 - Status bar + navigation bar (Android): `expo-system-ui` already installed — `SystemUI.setBackgroundColorAsync(theme.background)`.
 
 **Deliverables:** every screen legible in both schemes, user override persisted, no raw hex outside `constants/`.
+
+### ✅ §8 Implementation record
+
+| Area | Status | Where |
+| --- | --- | --- |
+| Palettes | ✅ | `constants/colors.ts` — `palettes.light` / `palettes.dark`, `ThemeName`, `Theme` |
+| Provider | ✅ | `components/ThemeProvider.tsx` — `ThemeProvider`, `useTheme`, `useSystemBars` |
+| Gradients | ✅ | `constants/gradients.ts` — `GRADIENTS.brand` / `GRADIENTS.action`, `brandGradient`, `actionGradient` |
+| Screens | ✅ | All 4 public screens, all 6 admin screens, all 8 shared components |
+
+**Deviations from the plan, and why**
+
+1. **`white` was not flipped — `onTint` was added instead.** §8.1 proposed making `white` resolve to the background colour in dark mode so existing call sites would need no change. That does not survive contact with the code: every use of `white` in this app is a glyph or a label *sitting on* a green button, so flipping it puts near-black text on a near-black button. `white` stays literally white and `onTint` carries the "foreground on brand green" meaning. The compat shim that would have made the flip work at all — a default export of `palettes.light` that grows a `dark` sibling — was also removed rather than left behind, so nothing can regress into it.
+2. **`makeStyles(theme)` factory instead of inline colour arrays.** §8.3 suggested a static `StyleSheet.create` plus inline overrides. With 256 colour references across 13 files, that would have meant rebuilding most of the style objects by hand. Instead each file's stylesheet became a factory called through `useMemo`, and colour rules moved to `theme.*` in place. Layout-only rules still live in a static `StyleSheet` inside the factory, so nothing is allocated per render beyond the registry.
+3. **System bars are one context value, not a per-screen effect.** §8.6 called for `SystemUI.setBackgroundColorAsync(theme.background)`. The map, the admin list, and the two green-gradient screens all disagree about what that colour should be, and a parent effect racing a child effect picks the wrong winner on navigate-back. `useSystemBars` sets a single `systemBarColor` that the last-mounted screen owns and releases on unmount.
+4. **`ErrorFallback` reads the OS scheme, not the context.** `ErrorBoundary` sits *outside* `ThemeProvider` in `app/_layout.tsx` so a provider crash is still caught — which means the context is unavailable exactly when the fallback renders. `useTheme()` returns the light palette instead of throwing for the same reason.
+5. **`app/+not-found.tsx` was themed** even though it is a template file. It had a raw `#2e78b7` link colour, which was the last Windows-blue in the app.
+
+**The one place raw colour values are still allowed**
+
+Eight `rgba(255,255,255,0.0x)` literals remain across `app/index.tsx` and `app/(auth)/sign-in.tsx`. These are the decorative hero washes — soft circles and translucent panels over a brand gradient that is dark green in *both* schemes. They are not light/dark decisions, so a token would imply a distinction that does not exist. Both files carry a comment saying so. Everything else resolves through `theme.*`.
+
+**Verification**
+
+- `npx tsc --noEmit` — clean
+- `npm run lint` — zero warnings, zero errors
+- `npx expo export --platform web` — bundles (5.26 MB)
+- Literal audit across `app/` and `components/` — 8 remaining, all documented above
+
+**Not verified (needs a device)**
+
+- Screenshots of every screen in both schemes, and the M6 contrast pass (≥ 4.5:1 for body text). Two spots to watch: `theme.warning` on `theme.surface` in the offline banner, and `theme.gray` on `theme.card` in the campus picker.
+- The persisted override across a cold restart — `loadStoredMode` is awaited before the splash hides, but the flash it is meant to prevent has not been observed.
+- An explicit in-app override that disagrees with the system: map tiles follow the OS (see `style.md` §Map) while our marker and route chrome follow the override. Known and accepted, not a bug.
 
 ---
 

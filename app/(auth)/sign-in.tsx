@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -17,7 +17,9 @@ import * as Linking from "expo-linking";
 import * as Haptics from "expo-haptics";
 import Animated, { FadeInDown, FadeInUp } from "react-native-reanimated";
 import { ArrowLeft, Check, Mail } from "lucide-react-native";
-import colors from "@/constants/colors";
+import { useSystemBars, useTheme } from "@/components/ThemeProvider";
+import { actionGradient, brandGradient } from "@/constants/gradients";
+import type { Theme } from "@/constants/colors";
 import { getSupabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/useAuth";
 
@@ -25,6 +27,11 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function SignInScreen() {
   const insets = useSafeAreaInsets();
+  const { theme, scheme } = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
+  // The hero gradient reaches the bottom of the screen, so the nav bar has to
+  // match its darkest stop rather than the page background.
+  useSystemBars(brandGradient(scheme)[0]);
   const { configured, loading } = useAuth();
 
   const [email, setEmail] = useState("");
@@ -76,7 +83,7 @@ export default function SignInScreen() {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
       <LinearGradient
-        colors={["#054A14", "#0B6623", "#0D7A2B"]}
+        colors={brandGradient(scheme)}
         style={StyleSheet.absoluteFill}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
@@ -103,7 +110,7 @@ export default function SignInScreen() {
           style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
           hitSlop={8}
         >
-          <ArrowLeft size={22} color="#FFFFFF" strokeWidth={2.5} />
+          <ArrowLeft size={22} color={theme.onTint} strokeWidth={2.5} />
         </Pressable>
 
         <Animated.View
@@ -112,9 +119,9 @@ export default function SignInScreen() {
         >
           <View style={styles.iconContainer}>
             {sent ? (
-              <Check size={32} color="#FFFFFF" strokeWidth={2.5} />
+              <Check size={32} color={theme.onTint} strokeWidth={2.5} />
             ) : (
-              <Mail size={32} color="#FFFFFF" strokeWidth={2.5} />
+              <Mail size={32} color={theme.onTint} strokeWidth={2.5} />
             )}
           </View>
           <Text style={styles.title}>
@@ -160,12 +167,12 @@ export default function SignInScreen() {
                 ]}
               >
                 <LinearGradient
-                  colors={["#0B6623", "#0D7A2B"]}
+                  colors={actionGradient(scheme)}
                   style={styles.exploreGradient}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                 >
-                  <Check size={20} color="#FFFFFF" strokeWidth={2.5} />
+                  <Check size={20} color={theme.onTint} strokeWidth={2.5} />
                   <Text style={styles.exploreText}>Done</Text>
                 </LinearGradient>
               </Pressable>
@@ -186,11 +193,11 @@ export default function SignInScreen() {
                       focused && styles.inputWrapperFocused,
                     ]}
                   >
-                    <Mail size={18} color={colors.light.gray} strokeWidth={2} />
+                    <Mail size={18} color={theme.gray} strokeWidth={2} />
                     <TextInput
                       style={styles.input}
                       placeholder="you@university.edu.ng"
-                      placeholderTextColor={colors.light.gray}
+                      placeholderTextColor={theme.gray}
                       value={email}
                       onChangeText={(text) => {
                         setEmail(text);
@@ -220,16 +227,16 @@ export default function SignInScreen() {
                   >
                     <LinearGradient
                       colors={
-                        canSubmit ? ["#0B6623", "#0D7A2B"] : ["#C8D6C8", "#C8D6C8"]
+                        canSubmit ? actionGradient(scheme) : [theme.tintDisabled, theme.tintDisabled]
                       }
                       style={styles.exploreGradient}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 0 }}
                     >
                       {sending ? (
-                        <ActivityIndicator size="small" color={colors.light.white} />
+                        <ActivityIndicator size="small" color={theme.white} />
                       ) : (
-                        <Mail size={20} color={canSubmit ? colors.light.white : colors.light.gray} />
+                        <Mail size={20} color={canSubmit ? theme.white : theme.gray} />
                       )}
                       <Text
                         style={[
@@ -280,10 +287,10 @@ export default function SignInScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (theme: Theme) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.light.tintDark,
+    backgroundColor: theme.tintDark,
   },
   patternOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -294,6 +301,10 @@ const styles = StyleSheet.create({
     width: 300,
     height: 300,
     borderRadius: 150,
+    // As on the landing screen: a decorative low-alpha white wash over a hero
+    // that is dark green in both schemes, so not a theme value. `logoRing` and
+    // `passwordToggle` stay rgba rather than `opacity` because they have
+    // children that must not fade with them.
     backgroundColor: "rgba(255,255,255,0.03)",
     top: -60,
     right: -80,
@@ -343,22 +354,22 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontFamily: "Inter_700Bold",
-    color: colors.light.white,
+    color: theme.white,
     textAlign: "center",
   },
   subtitle: {
     fontSize: 15,
     fontFamily: "Inter_400Regular",
-    color: "rgba(255,255,255,0.7)",
+    color: theme.onTintMuted,
     textAlign: "center",
     lineHeight: 22,
   },
   card: {
-    backgroundColor: colors.light.card,
+    backgroundColor: theme.card,
     borderRadius: 20,
     padding: 24,
     gap: 16,
-    shadowColor: "#000",
+    shadowColor: theme.shadow,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.15,
     shadowRadius: 24,
@@ -373,12 +384,12 @@ const styles = StyleSheet.create({
   cardTitle: {
     fontSize: 22,
     fontFamily: "Inter_700Bold",
-    color: colors.light.text,
+    color: theme.text,
   },
   cardDescription: {
     fontSize: 14,
     fontFamily: "Inter_400Regular",
-    color: colors.light.textSecondary,
+    color: theme.textSecondary,
     lineHeight: 20,
   },
   inputWrapper: {
@@ -386,26 +397,26 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     borderWidth: 1.5,
-    borderColor: colors.light.border,
+    borderColor: theme.border,
     borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 14,
-    backgroundColor: colors.light.backgroundSecondary,
+    backgroundColor: theme.backgroundSecondary,
   },
   inputWrapperFocused: {
-    borderColor: colors.light.tint,
+    borderColor: theme.tint,
   },
   input: {
     flex: 1,
     fontSize: 15,
     fontFamily: "Inter_400Regular",
-    color: colors.light.text,
+    color: theme.text,
     paddingVertical: 0,
   },
   errorText: {
     fontSize: 13,
     fontFamily: "Inter_500Medium",
-    color: colors.light.danger,
+    color: theme.danger,
     lineHeight: 18,
   },
   exploreButton: {
@@ -429,10 +440,10 @@ const styles = StyleSheet.create({
   exploreText: {
     fontSize: 16,
     fontFamily: "Inter_600SemiBold",
-    color: colors.light.white,
+    color: theme.white,
   },
   exploreTextDisabled: {
-    color: colors.light.gray,
+    color: theme.gray,
   },
   secondaryButton: {
     alignItems: "center",
@@ -440,18 +451,18 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: colors.light.tint,
-    backgroundColor: colors.light.tintLight,
+    borderColor: theme.tint,
+    backgroundColor: theme.tintLight,
   },
   secondaryText: {
     fontSize: 15,
     fontFamily: "Inter_600SemiBold",
-    color: colors.light.tint,
+    color: theme.tint,
   },
   helperText: {
     fontSize: 13,
     fontFamily: "Inter_400Regular",
-    color: colors.light.textSecondary,
+    color: theme.textSecondary,
     textAlign: "center",
     lineHeight: 18,
   },
@@ -467,12 +478,12 @@ const styles = StyleSheet.create({
   guestText: {
     fontSize: 15,
     fontFamily: "Inter_500Medium",
-    color: colors.light.white,
+    color: theme.white,
   },
   footerText: {
     fontSize: 13,
     fontFamily: "Inter_400Regular",
-    color: "rgba(255,255,255,0.6)",
+    color: theme.onTintMuted,
     textAlign: "center",
     lineHeight: 18,
   },

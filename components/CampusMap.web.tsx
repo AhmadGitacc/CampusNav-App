@@ -1,6 +1,7 @@
 import React, { forwardRef, useImperativeHandle } from "react";
 import { View, Text, StyleSheet, Pressable } from "react-native";
 import { MapPin } from "lucide-react-native";
+import { useTheme } from "@/components/ThemeProvider";
 import type { CampusMarker, LatLon } from "@shared/types";
 
 interface CampusMapProps {
@@ -22,47 +23,63 @@ const CampusMap = forwardRef<any, CampusMapProps>(
       animateToRegion: () => {},
     }));
 
+    const { theme } = useTheme();
+
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: theme.mapBackdrop }]}>
         <View style={styles.mapPlaceholder}>
-          <MapPin size={48} color="#0B6623" />
-          <Text style={styles.title}>NSUK Campus Map</Text>
-          <Text style={styles.subtitle}>
+          <MapPin size={48} color={theme.tint} />
+          <Text style={[styles.title, { color: theme.text }]}>
+            NSUK Campus Map
+          </Text>
+          <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
             For the full interactive map experience, open this app on your phone
             using Expo Go
           </Text>
           <View style={styles.markerList}>
-            {markers.map((marker) => (
-              <Pressable
-                key={marker.id}
-                onPress={() => onMarkerPress(marker)}
-                style={[
-                  styles.markerItem,
-                  selectedMarkerId === marker.id && styles.markerItemSelected,
-                ]}
-              >
-                <MapPin
-                  size={16}
-                  color={
-                    selectedMarkerId === marker.id ? "#0B6623" : "#5A6B5A"
-                  }
-                />
-                <View style={styles.markerInfo}>
-                  <Text
-                    style={[
-                      styles.markerTitle,
-                      selectedMarkerId === marker.id &&
-                        styles.markerTitleSelected,
-                    ]}
-                  >
-                    {marker.title}
-                  </Text>
-                  <Text style={styles.markerCoords}>
-                    {marker.lat.toFixed(4)}, {marker.lng.toFixed(4)}
-                  </Text>
-                </View>
-              </Pressable>
-            ))}
+            {markers.map((marker) => {
+              const isSelected = selectedMarkerId === marker.id;
+              return (
+                <Pressable
+                  key={marker.id}
+                  onPress={() => onMarkerPress(marker)}
+                  style={[
+                    styles.markerItem,
+                    {
+                      backgroundColor: theme.surface,
+                      borderColor: theme.separator,
+                    },
+                    isSelected && {
+                      borderColor: theme.tint,
+                      backgroundColor: theme.tintLight,
+                    },
+                  ]}
+                >
+                  <MapPin
+                    size={16}
+                    color={isSelected ? theme.tint : theme.textSecondary}
+                  />
+                  <View style={styles.markerInfo}>
+                    <Text
+                      style={[
+                        styles.markerTitle,
+                        {
+                          color: isSelected ? theme.tint : theme.text,
+                          fontFamily: isSelected
+                            ? "Inter_600SemiBold"
+                            : "Inter_500Medium",
+                        },
+                      ]}
+                    >
+                      {marker.title}
+                    </Text>
+                    <Text style={[styles.markerCoords, { color: theme.gray }]}>
+                      {marker.lat.toFixed(4)}, {marker.lng.toFixed(4)}
+                    </Text>
+                  </View>
+                </Pressable>
+              );
+            })}
           </View>
         </View>
       </View>
@@ -77,7 +94,6 @@ export default CampusMap;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#E8F5E9",
   },
   mapPlaceholder: {
     flex: 1,
@@ -89,13 +105,11 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 22,
     fontFamily: "Inter_700Bold",
-    color: "#1B2E1B",
     marginTop: 8,
   },
   subtitle: {
     fontSize: 14,
     fontFamily: "Inter_400Regular",
-    color: "#5A6B5A",
     textAlign: "center",
     lineHeight: 20,
     maxWidth: 300,
@@ -110,31 +124,18 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    backgroundColor: "#FFFFFF",
     padding: 14,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#D5E0D5",
-  },
-  markerItemSelected: {
-    borderColor: "#0B6623",
-    backgroundColor: "#E8F5E9",
   },
   markerInfo: {
     gap: 2,
   },
   markerTitle: {
     fontSize: 15,
-    fontFamily: "Inter_500Medium",
-    color: "#1B2E1B",
-  },
-  markerTitleSelected: {
-    color: "#0B6623",
-    fontFamily: "Inter_600SemiBold",
   },
   markerCoords: {
     fontSize: 12,
     fontFamily: "Inter_400Regular",
-    color: "#9E9E9E",
   },
 });

@@ -7,6 +7,11 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider } from "@/components/AuthProvider";
 import {
+  ThemeProvider,
+  loadStoredMode,
+  type ThemeMode,
+} from "@/components/ThemeProvider";
+import {
   QUERY_CACHE_MAX_AGE,
   queryClient,
   queryPersister,
@@ -26,17 +31,24 @@ function RootLayoutNav() {
     <Stack screenOptions={{ headerShown: false, headerBackTitle: "Back" }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="map" />
+      <Stack.Screen name="favorites" />
       <Stack.Screen name="(auth)" />
+      {/* Admin CMS. The role gate lives in app/admin/_layout.tsx — this entry
+          only puts the tree in the navigator so typed routes include it. */}
+      <Stack.Screen name="admin" />
     </Stack>
   );
 }
 
 /**
- * Holds the splash screen until the persisted cache is back.
+ * Holds the splash screen until the persisted cache and theme are back.
  *
  * PersistQueryClientProvider renders children immediately, so without this the
  * app would show a loading state for a moment on every cold start — most
- * noticeable offline, where the cache is the only source of data.
+ * noticeable offline, where the cache is the only source of data. The theme
+ * read is awaited here for the same reason: reading it inside ThemeProvider
+ * would paint one frame of the wrong scheme first, which is the light flash
+ * §8.6 asks us to avoid.
  */
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
@@ -46,14 +58,19 @@ export default function RootLayout() {
     Inter_700Bold,
   });
   const [cacheRestored, setCacheRestored] = useState(false);
+  const [storedMode, setStoredMode] = useState<ThemeMode | null>(null);
 
   useEffect(() => {
-    if (fontsLoaded && cacheRestored) {
+    void loadStoredMode().then(setStoredMode);
+  }, []);
+
+  useEffect(() => {
+    if (fontsLoaded && cacheRestored && storedMode !== null) {
       SplashScreen.hideAsync();
     }
-  }, [fontsLoaded, cacheRestored]);
+  }, [fontsLoaded, cacheRestored, storedMode]);
 
-  if (!fontsLoaded) return null;
+  if (!fontsLoaded || storedMode === null) return null;
 
   return (
     <ErrorBoundary>
@@ -65,13 +82,15 @@ export default function RootLayout() {
         onSuccess={() => setCacheRestored(true)}
         onError={() => setCacheRestored(true)}
       >
-        <AuthProvider>
-          <GestureHandlerRootView style={{ flex: 1 }}>
-            <KeyboardProvider>
-              <RootLayoutNav />
-            </KeyboardProvider>
-          </GestureHandlerRootView>
-        </AuthProvider>
+        <ThemeProvider initialMode={storedMode}>
+          <AuthProvider>
+            <GestureHandlerRootView style={{ flex: 1 }}>
+              <KeyboardProvider>
+                <RootLayoutNav />
+              </KeyboardProvider>
+            </GestureHandlerRootView>
+          </AuthProvider>
+        </ThemeProvider>
       </PersistQueryClientProvider>
     </ErrorBoundary>
   );

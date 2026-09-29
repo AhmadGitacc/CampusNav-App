@@ -21,7 +21,7 @@ import {
 import * as Haptics from "expo-haptics";
 import { formatDistance } from "@/lib/geo";
 import type { ManeuverIconName, NavStep } from "@/lib/navigation/instructions";
-import colors from "@/constants/colors";
+import { useTheme } from "@/components/ThemeProvider";
 
 const GLYPHS: Record<ManeuverIconName, LucideIcon> = {
   depart: Compass,
@@ -48,10 +48,13 @@ interface ManeuverGlyphProps {
 export function ManeuverGlyph({
   icon,
   size = 22,
-  color = colors.light.tint,
+  color,
 }: ManeuverGlyphProps) {
+  const { theme } = useTheme();
   const Glyph = GLYPHS[icon] ?? ArrowUp;
-  return <Glyph size={size} color={color} strokeWidth={2.5} />;
+  return (
+    <Glyph size={size} color={color ?? theme.tint} strokeWidth={2.5} />
+  );
 }
 
 interface NavigationStepsProps {
@@ -75,6 +78,7 @@ export function NavigationSteps({
 }: NavigationStepsProps) {
   const scrollRef = useRef<ScrollView>(null);
   const offsetsRef = useRef<Record<number, number>>({});
+  const { theme } = useTheme();
 
   const handleLayout = useCallback((index: number, y: number) => {
     offsetsRef.current[index] = y;
@@ -101,25 +105,27 @@ export function NavigationSteps({
         accessibilityRole="button"
         accessibilityState={{ expanded }}
       >
-        <Text style={styles.headerLabel}>Steps ({steps.length})</Text>
+        <Text style={[styles.headerLabel, { color: theme.text }]}>
+          Steps ({steps.length})
+        </Text>
         {expanded ? (
-          <ChevronUp size={18} color={colors.light.tint} strokeWidth={2.5} />
+          <ChevronUp size={18} color={theme.tint} strokeWidth={2.5} />
         ) : (
-          <ChevronDown size={18} color={colors.light.tint} strokeWidth={2.5} />
+          <ChevronDown size={18} color={theme.tint} strokeWidth={2.5} />
         )}
       </Pressable>
 
       {expanded && (
         <ScrollView
           ref={scrollRef}
-          style={styles.list}
+          style={[styles.list, { backgroundColor: theme.surface }]}
           nestedScrollEnabled
           showsVerticalScrollIndicator={false}
         >
           {steps.map((step, index) => {
             const isActive = index === activeIndex;
             const isDone = index < activeIndex;
-            const tint = isActive ? colors.light.tint : colors.light.gray;
+            const tint = isActive ? theme.tint : theme.gray;
 
             return (
               <View
@@ -127,32 +133,44 @@ export function NavigationSteps({
                 onLayout={(event) => handleLayout(index, event.nativeEvent.layout.y)}
                 style={[
                   styles.row,
-                  isActive && styles.rowActive,
-                  isDone && styles.rowDone,
+                  { borderBottomColor: theme.separator },
+                  isActive && { backgroundColor: theme.tintLight },
+                  isDone && { backgroundColor: theme.surfacePressed },
                 ]}
               >
-                <View style={[styles.indicator, isActive && styles.indicatorActive]} />
+                <View
+                  style={[
+                    styles.indicator,
+                    isActive && { backgroundColor: theme.tint },
+                  ]}
+                />
                 <ManeuverGlyph icon={step.icon} size={18} color={tint} />
                 <View style={styles.rowText}>
                   <Text
                     style={[
                       styles.rowInstruction,
-                      isActive && styles.rowInstructionActive,
-                      isDone && styles.rowInstructionDone,
+                      isActive
+                        ? styles.rowInstructionActive
+                        : isDone
+                          ? { color: theme.gray }
+                          : { color: theme.text },
                     ]}
                     numberOfLines={2}
                   >
                     {step.instruction}
                   </Text>
                   {step.distance > 0 && (
-                    <Text style={styles.rowDistance}>
+                    <Text
+                      style={[
+                        styles.rowDistance,
+                        { color: theme.textSecondary },
+                      ]}
+                    >
                       {formatDistance(step.distance)}
                     </Text>
                   )}
                 </View>
-                {isActive && (
-                  <Check size={16} color={colors.light.tint} strokeWidth={2.5} />
-                )}
+                {isActive && <Check size={16} color={theme.tint} strokeWidth={2.5} />}
               </View>
             );
           })}
@@ -179,12 +197,10 @@ const styles = StyleSheet.create({
   headerLabel: {
     fontSize: 14,
     fontFamily: "Inter_600SemiBold",
-    color: colors.light.text,
   },
   list: {
     maxHeight: 200,
     borderRadius: 14,
-    backgroundColor: colors.light.surface,
     overflow: "hidden",
   },
   row: {
@@ -194,23 +210,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: colors.light.separator,
   },
-  rowActive: {
-    backgroundColor: colors.light.tintLight,
-  },
-  rowDone: {
-    backgroundColor: colors.light.surfacePressed,
-  },
+  // A 3px dot, not just a hue shift, marks the active step (style.md §9).
   indicator: {
     width: 3,
     height: 3,
     borderRadius: 1.5,
     backgroundColor: "transparent",
-  },
-  // Shape, not just hue, marks the active step (style.md §9).
-  indicatorActive: {
-    backgroundColor: colors.light.tint,
   },
   rowText: {
     flex: 1,
@@ -219,19 +225,13 @@ const styles = StyleSheet.create({
   rowInstruction: {
     fontSize: 14,
     fontFamily: "Inter_400Regular",
-    color: colors.light.text,
     lineHeight: 20,
   },
   rowInstructionActive: {
     fontFamily: "Inter_600SemiBold",
-    color: colors.light.tint,
-  },
-  rowInstructionDone: {
-    color: colors.light.gray,
   },
   rowDistance: {
     fontSize: 12,
     fontFamily: "Inter_500Medium",
-    color: colors.light.textSecondary,
   },
 });

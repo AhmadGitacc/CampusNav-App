@@ -2,6 +2,7 @@ import React, { forwardRef } from "react";
 import { StyleSheet, View } from "react-native";
 import MapView, { Marker, Polyline, PROVIDER_DEFAULT } from "react-native-maps";
 import { MarkerIcon } from "@/components/MarkerIcon";
+import { useTheme } from "@/components/ThemeProvider";
 import type { CampusMarker, LatLon } from "@shared/types";
 
 interface NativeMapViewProps {
@@ -17,6 +18,15 @@ interface NativeMapViewProps {
   onRegionChange?: (center: LatLon) => void;
 }
 
+/**
+ * PROVIDER_DEFAULT on purpose: Apple Maps on iOS, Google Maps on Android. Both
+ * follow the OS appearance for the tile layer, and picking PROVIDER_GOOGLE to
+ * get `customMapStyle` would mean shipping an API key and pinning every user to
+ * Google on iOS. The one gap this leaves is an explicit in-app override that
+ * disagrees with the system — the tiles then stay on the system appearance
+ * while our marker and route chrome follow the override. Recorded in style.md
+ * §Map rather than papered over with a second provider.
+ */
 const NativeMapView = forwardRef<MapView, NativeMapViewProps>(
   (
     {
@@ -32,6 +42,8 @@ const NativeMapView = forwardRef<MapView, NativeMapViewProps>(
     },
     ref
   ) => {
+    const { theme } = useTheme();
+
     return (
       <MapView
         ref={ref}
@@ -56,29 +68,40 @@ const NativeMapView = forwardRef<MapView, NativeMapViewProps>(
           }
         }}
       >
-        {markers.map((marker) => (
-          <Marker
-            key={marker.id}
-            coordinate={{ latitude: marker.lat, longitude: marker.lng }}
-            title={marker.title}
-            description={marker.description}
-            onPress={() => onMarkerPress(marker)}
-          >
-            <View
-              style={[
-                styles.markerContainer,
-                selectedMarkerId === marker.id && styles.markerSelected,
-              ]}
+        {markers.map((marker) => {
+          const isSelected = selectedMarkerId === marker.id;
+          return (
+            <Marker
+              key={marker.id}
+              coordinate={{ latitude: marker.lat, longitude: marker.lng }}
+              title={marker.title}
+              description={marker.description}
+              onPress={() => onMarkerPress(marker)}
             >
-              <MarkerIcon icon={marker.icon} />
-            </View>
-            <View style={styles.markerArrow} />          </Marker>
-        ))}
+              <View
+                style={[
+                  styles.markerContainer,
+                  {
+                    backgroundColor: isSelected ? theme.tintDark : theme.tint,
+                    borderColor: theme.onTint,
+                    shadowColor: theme.shadow,
+                  },
+                  isSelected && styles.markerSelected,
+                ]}
+              >
+                <MarkerIcon icon={marker.icon} />
+              </View>
+              <View
+                style={[styles.markerArrow, { borderTopColor: isSelected ? theme.tintDark : theme.tint }]}
+              />
+            </Marker>
+          );
+        })}
 
         {showRoute && routeCoords && routeCoords.length > 0 && (
           <Polyline
             coordinates={routeCoords}
-            strokeColor="#0B6623"
+            strokeColor={theme.tint}
             strokeWidth={4}
             lineDashPattern={[0]}
           />
@@ -97,19 +120,15 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 12,
-    backgroundColor: "#0B6623",
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 2.5,
-    borderColor: "#FFFFFF",
-    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
     elevation: 4,
   },
   markerSelected: {
-    backgroundColor: "#054A14",
     width: 42,
     height: 42,
     borderRadius: 14,
@@ -123,7 +142,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 8,
     borderLeftColor: "transparent",
     borderRightColor: "transparent",
-    borderTopColor: "#0B6623",
     alignSelf: "center",
     marginTop: -1,
   },

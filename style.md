@@ -39,7 +39,19 @@ Single source of truth: `constants/colors.ts`. **Always import from there** — 
 - **Green = interactive or active.** Anything tappable/selected uses the green ramp; static content stays neutral.
 - **Never pure black** (`#000`) for text — use `#1B2E1B`.
 - On the green gradient, secondary text is white at 60–70% opacity, not gray.
-- Shadows use `shadowColor: "#000"` with low opacity (see §5) — keep that as-is.
+- Shadows use a low-opacity green (`shadowColor: theme.shadow`, `rgba(11,102,35,0.08)` in light) rather than pure black — a black shadow on the dark palette reads as a grey halo around every raised surface.
+- **The hexes above are the light palette.** Never hardcode one: import `useTheme()` from `@/components/ThemeProvider` and read `theme.*`. The full light/dark pair lives in `constants/colors.ts`.
+
+### Map
+
+`CampusMap.native.tsx` uses `PROVIDER_DEFAULT` — Apple Maps on iOS, Google Maps on Android — and **that stays**. The alternative is `PROVIDER_GOOGLE` everywhere so a `customMapStyle` JSON can be applied, which costs a Google Maps API key in the bundle and forces every iOS user off Apple Maps to get a styling feature they probably do not notice.
+
+What that buys and what it costs:
+
+- Both providers follow the OS appearance for the tile layer, so the default `system` mode is fully themed on both platforms.
+- If someone sets an explicit override that disagrees with the OS, the tiles stay on the system appearance while our markers, route polyline, and floating cards follow the override. This is the one known mismatch in the app. It is accepted, not fixed — fixing it means a custom style array per scheme, which means `PROVIDER_GOOGLE`, which means the API key.
+
+Web has no map at all (the placeholder in `CampusMap.web.tsx` lists markers), so the whole question is native-only.
 
 ---
 
@@ -203,28 +215,33 @@ Call haptics at the top of the press handler, before any async work.
 
 - **One file per screen** in `app/`; shared UI in `components/`; tokens in `constants/`; utilities in `lib/`.
 - Styles: `StyleSheet.create` at the **bottom of the file**, semantic camelCase names (`exploreButton`, `sheetTitle`, `searchBarFocused`). Variant styling via arrays: `[styles.base, condition && styles.variant]`.
+- A screen's stylesheet is a **`makeStyles(theme)` factory** called via `useMemo(() => makeStyles(theme), [theme])`. Layout-only rules stay inside it; colours come from the `theme` parameter, never from a module-level import. This is the pattern every converted screen and component uses.
+- Colours come from `useTheme()`, never from a direct import of `constants/colors.ts`. `constants/colors.ts` has no default export; if you reach for one, you are writing a screen that breaks in dark mode.
 - Prefer `gap` over margin pairs for vertical stacks.
 - Pressables use the render-prop form: `style={({ pressed }) => [styles.x, pressed && styles.y]}`.
 - Naming: components PascalCase files, hooks/helpers camelCase, screen files lowercase route names.
-- No inline hex in new code — use `constants/colors.ts` (extend the file if a token is missing).
+- No inline hex in new code — use `constants/colors.ts` (extend the file if a token is missing). The eight decorative hero washes in `app/index.tsx` and `app/(auth)/sign-in.tsx` are the documented exception; do not add more.
 - TypeScript `strict` is on; avoid `any` for new props (existing `mapRef: any` and `marker: any` are legacy).
 - Animated components must come from `react-native-reanimated`, never RN's `Animated`.
 - Keep `webTopInset` / `webBottomInset` handling consistent across screens rather than inventing a new inset scheme.
+- A full-bleed screen that overrides the Android nav bar colour calls `useSystemBars(color)`; everything else inherits `theme.background` from the provider.
 
 ---
 
 ## 11. Quick Do / Don't
 
 ✅ Do
-- Inter with explicit `fontFamily`; green for interactive; `#1B2E1B` for text
+- Inter with explicit `fontFamily`; green for interactive; `theme.text` for text
 - Radius 14 for buttons/inputs, 20 for cards, 24-top for sheets
 - Haptics on press, `pressed` feedback on every `Pressable`
 - Safe-area + web insets on absolutely positioned elements
 - `overflow: "hidden"` on any rounded container holding a gradient
+- Read colour through `useTheme()` so the screen works in both schemes
 
 ❌ Don't
-- Hardcode a new hex outside `constants/colors.ts`
+- Hardcode a new hex outside `constants/colors.ts`, or import a default from it
 - Use `fontWeight` instead of a named Inter family
 - Add a tap target without a pressed state or haptic
-- Use pure `#000` text or default gray borders (`#D5E0D5` instead)
+- Use pure `#000` text or default gray borders (`theme.border` instead)
 - Animate without reanimated, or add looping/decorative motion
+- Branch on the colour scheme in a component — add a token instead

@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
+import { palettes } from "@/constants/colors";
 
 export type ErrorFallbackProps = {
   error: Error;
@@ -23,14 +24,12 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
   const isDark = colorScheme === "dark";
   const insets = useSafeAreaInsets();
 
-  const theme = {
-    background: isDark ? "#000000" : "#FFFFFF",
-    backgroundSecondary: isDark ? "#1C1C1E" : "#F2F2F7",
-    text: isDark ? "#FFFFFF" : "#000000",
-    textSecondary: isDark ? "rgba(255, 255, 255, 0.7)" : "rgba(0, 0, 0, 0.7)",
-    link: "#007AFF",
-    buttonText: "#FFFFFF",
-  };
+  // Deliberately not useTheme(). ErrorBoundary sits *outside* ThemeProvider in
+  // app/_layout.tsx so a provider crash is still caught, which means the context
+  // is unavailable exactly when this renders. Following the OS directly is the
+  // only signal left � and it is why the old ad-hoc theme could be deleted
+  // rather than moved.
+  const theme = palettes[isDark ? "dark" : "light"];
 
   const [isModalVisible, setIsModalVisible] = useState(false);
 
@@ -91,13 +90,14 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
           style={({ pressed }) => [
             styles.button,
             {
-              backgroundColor: theme.link,
+              backgroundColor: theme.tint,
+              shadowColor: theme.shadow,
               opacity: pressed ? 0.9 : 1,
               transform: [{ scale: pressed ? 0.98 : 1 }],
             },
           ]}
         >
-          <Text style={[styles.buttonText, { color: theme.buttonText }]}>
+          <Text style={[styles.buttonText, { color: theme.onTint }]}>
             Try Again
           </Text>
         </Pressable>
@@ -110,20 +110,18 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
           transparent={true}
           onRequestClose={() => setIsModalVisible(false)}
         >
-          <View style={styles.modalOverlay}>
+          <View style={[styles.modalOverlay, { backgroundColor: theme.scrim }]}>
             <View
               style={[
                 styles.modalContainer,
-                { backgroundColor: theme.background },
+                { backgroundColor: theme.surface },
               ]}
             >
               <View
                 style={[
                   styles.modalHeader,
                   {
-                    borderBottomColor: isDark
-                      ? "rgba(255, 255, 255, 0.1)"
-                      : "rgba(0, 0, 0, 0.1)",
+                    borderBottomColor: theme.separator,
                   },
                 ]}
               >
@@ -222,7 +220,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 24,
     minWidth: 200,
-    shadowColor: "#000",
     shadowOffset: {
       width: 0,
       height: 2,
@@ -238,7 +235,6 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
     justifyContent: "flex-end",
   },
   modalContainer: {

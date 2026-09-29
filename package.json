@@ -12,6 +12,7 @@
     "server:prod": "NODE_ENV=production node server_dist/index.js",
     "db:push": "drizzle-kit push",
     "db:seed": "tsx scripts/seed.ts",
+    "admin:grant": "tsx scripts/make-admin.ts",
     "paths:collect": "tsx scripts/collect-paths.ts",
     "start": "npx expo start",
     "lint": "npx expo lint",
