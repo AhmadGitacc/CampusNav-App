@@ -372,7 +372,7 @@ const makeStyles = (theme: Theme) => StyleSheet.create({
     backgroundColor: theme.tintDark,
   },
   patternOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     overflow: "hidden",
   },
   // The four washes below are the only literal colours left in the app. They are

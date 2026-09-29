@@ -293,7 +293,7 @@ const makeStyles = (theme: Theme) => StyleSheet.create({
     backgroundColor: theme.tintDark,
   },
   patternOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     overflow: "hidden",
   },
   circle1: {

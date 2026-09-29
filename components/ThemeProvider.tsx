@@ -85,7 +85,9 @@ export function ThemeProvider({
     SYSTEM_BAR_DEFAULT
   );
 
-  const scheme: ThemeName = mode === "system" ? (systemScheme ?? "light") : mode;
+  // `useColorScheme` reports "unspecified" when the OS has no preference.
+  const scheme: ThemeName =
+    mode === "system" ? (systemScheme === "dark" ? "dark" : "light") : mode;
 
   const setMode = useCallback((next: ThemeMode) => {
     setModeState(next);

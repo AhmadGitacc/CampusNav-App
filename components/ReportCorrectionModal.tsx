@@ -267,7 +267,7 @@ function placeholderFor(field: CorrectionField): string {
 
 const makeStyles = (theme: Theme) => StyleSheet.create({
   scrim: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: theme.scrim,
   },
   sheet: {

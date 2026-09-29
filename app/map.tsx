@@ -1129,7 +1129,7 @@ const makeStyles = (theme: Theme) => StyleSheet.create({
     elevation: 4,
   },
   overlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: "center",
     justifyContent: "center",
     padding: 24,
