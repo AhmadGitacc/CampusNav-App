@@ -1,46 +1,20 @@
 import React, { forwardRef } from "react";
 import { StyleSheet, View } from "react-native";
 import MapView, { Marker, Polyline, PROVIDER_DEFAULT } from "react-native-maps";
-import {
-  Building2,
-  BookOpen,
-  Library,
-  Flag,
-  MapPin,
-} from "lucide-react-native";
-
-function getMarkerIcon(icon: string) {
-  const props = { size: 16, color: "#FFFFFF", strokeWidth: 2.5 };
-  switch (icon) {
-    case "building":
-      return <Building2 {...props} />;
-    case "book":
-      return <BookOpen {...props} />;
-    case "library":
-      return <Library {...props} />;
-    case "flag":
-      return <Flag {...props} />;
-    default:
-      return <MapPin {...props} />;
-  }
-}
+import { MarkerIcon } from "@/components/MarkerIcon";
+import type { CampusMarker, LatLon } from "@shared/types";
 
 interface NativeMapViewProps {
-  markers: Array<{
-    id: string;
-    title: string;
-    description: string;
-    lat: number;
-    lng: number;
-    icon: string;
-  }>;
+  markers: CampusMarker[];
   selectedMarkerId: string | null;
-  onMarkerPress: (marker: any) => void;
-  userLocation: { latitude: number; longitude: number } | null;
-  routeCoords: { latitude: number; longitude: number }[] | null;
+  onMarkerPress: (marker: CampusMarker) => void;
+  userLocation: LatLon | null;
+  routeCoords: LatLon[] | null;
   showRoute: boolean;
   campusLat: number;
   campusLng: number;
+  /** Fires with the map's centre whenever the visible region settles. */
+  onRegionChange?: (center: LatLon) => void;
 }
 
 const NativeMapView = forwardRef<MapView, NativeMapViewProps>(
@@ -54,6 +28,7 @@ const NativeMapView = forwardRef<MapView, NativeMapViewProps>(
       showRoute,
       campusLat,
       campusLng,
+      onRegionChange,
     },
     ref
   ) => {
@@ -72,6 +47,14 @@ const NativeMapView = forwardRef<MapView, NativeMapViewProps>(
         showsMyLocationButton={false}
         showsCompass={false}
         mapType="standard"
+        onRegionChangeComplete={(region) => {
+          if (region) {
+            onRegionChange?.({
+              latitude: region.latitude,
+              longitude: region.longitude,
+            });
+          }
+        }}
       >
         {markers.map((marker) => (
           <Marker
@@ -87,10 +70,9 @@ const NativeMapView = forwardRef<MapView, NativeMapViewProps>(
                 selectedMarkerId === marker.id && styles.markerSelected,
               ]}
             >
-              {getMarkerIcon(marker.icon)}
+              <MarkerIcon icon={marker.icon} />
             </View>
-            <View style={styles.markerArrow} />
-          </Marker>
+            <View style={styles.markerArrow} />          </Marker>
         ))}
 
         {showRoute && routeCoords && routeCoords.length > 0 && (
@@ -105,6 +87,8 @@ const NativeMapView = forwardRef<MapView, NativeMapViewProps>(
     );
   }
 );
+
+NativeMapView.displayName = "NativeMapView";
 
 export default NativeMapView;
 

@@ -1,23 +1,19 @@
 import React, { forwardRef, useImperativeHandle } from "react";
 import { View, Text, StyleSheet, Pressable } from "react-native";
 import { MapPin } from "lucide-react-native";
+import type { CampusMarker, LatLon } from "@shared/types";
 
 interface CampusMapProps {
-  markers: Array<{
-    id: string;
-    title: string;
-    description: string;
-    lat: number;
-    lng: number;
-    icon: string;
-  }>;
-  onMarkerPress: (marker: any) => void;
+  markers: CampusMarker[];
+  onMarkerPress: (marker: CampusMarker) => void;
   selectedMarkerId: string | null;
-  userLocation: { latitude: number; longitude: number } | null;
-  routeCoords: { latitude: number; longitude: number }[] | null;
+  userLocation: LatLon | null;
+  routeCoords: LatLon[] | null;
   showRoute: boolean;
   campusLat: number;
   campusLng: number;
+  /** Unused on web — the placeholder has no pannable region to report. */
+  onRegionChange?: (center: LatLon) => void;
 }
 
 const CampusMap = forwardRef<any, CampusMapProps>(
@@ -73,6 +69,8 @@ const CampusMap = forwardRef<any, CampusMapProps>(
     );
   }
 );
+
+CampusMap.displayName = "CampusMap";
 
 export default CampusMap;
 

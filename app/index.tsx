@@ -12,36 +12,62 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
-import { MapPin, ChevronDown, Navigation, Check } from "lucide-react-native";
+import { MapPin, ChevronDown, Navigation, Check, RefreshCw } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import Animated, {
   FadeInDown,
   FadeInUp,
 } from "react-native-reanimated";
-
-const CAMPUSES = [
-  {
-    id: "nsuk",
-    name: "Nasarawa State University (NSUK)",
-    location: "Keffi, Nasarawa State",
-    lat: 8.8471,
-    lng: 7.8776,
-  },
-];
+import colors from "@/constants/colors";
+import { useAuth } from "@/lib/useAuth";
+import { useCampuses } from "@/lib/api/campuses";
+import { isSupabaseConfigured } from "@/lib/supabase";
+import { SEED_CAMPUSES } from "@/lib/data/campus-fallback";
 
 export default function LandingScreen() {
   const insets = useSafeAreaInsets();
+  const { user, configured, signOut } = useAuth();
   const [selectedCampus, setSelectedCampus] = useState<string | null>(null);
   const [showPicker, setShowPicker] = useState(false);
 
-  const selected = CAMPUSES.find((c) => c.id === selectedCampus);
+  const {
+    data: fetchedCampuses,
+    isLoading: campusesLoading,
+    isError: campusesError,
+    refetch: refetchCampuses,
+  } = useCampuses();
+
+  // Guest mode (no backend yet) uses the bundled dataset; §3 added the offline cache.
+  const campuses = isSupabaseConfigured
+    ? (fetchedCampuses ?? [])
+    : SEED_CAMPUSES;
+  const loadingCampuses = isSupabaseConfigured && campusesLoading;
+  const erroredCampuses = isSupabaseConfigured && campusesError;
+
+  const selected = campuses.find((c) => c.id === selectedCampus);
+  const accountName =
+    (user?.user_metadata?.full_name as string | undefined) ??
+    user?.email?.split("@")[0] ??
+    "Account";
+
+  const handleAccountAction = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (user) {
+      signOut();
+    } else {
+      router.push("/(auth)/sign-in");
+    }
+  };
 
   const handleExplore = () => {
     if (!selected) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     router.push({
       pathname: "/map",
-      params: { campusId: selected.id, lat: selected.lat, lng: selected.lng },
+      // Slug, not `selected.id`: `/map?campusId=nsuk` has to stay shareable and
+      // survive a re-seed, which the assigned uuid does not. `useCampus` and the
+      // route server both look up on slug.
+      params: { campusId: selected.slug, lat: selected.lat, lng: selected.lng },
     });
   };
 
@@ -101,7 +127,9 @@ export default function LandingScreen() {
           entering={FadeInDown.delay(400).duration(600)}
           style={styles.card}
         >
-          <Text style={styles.guestBadge}>Guest Access</Text>
+          <Text style={styles.guestBadge}>
+            {user ? accountName : "Guest Access"}
+          </Text>
 
           <Text style={styles.cardTitle}>Select Your Campus</Text>
           <Text style={styles.cardDescription}>
@@ -113,6 +141,7 @@ export default function LandingScreen() {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               setShowPicker(true);
             }}
+            disabled={loadingCampuses || erroredCampuses}
             style={({ pressed }) => [
               styles.dropdown,
               pressed && styles.dropdownPressed,
@@ -131,11 +160,36 @@ export default function LandingScreen() {
                 ]}
                 numberOfLines={1}
               >
-                {selected ? selected.name : "Choose a campus..."}
+                {loadingCampuses
+                  ? "Loading campuses..."
+                  : selected
+                    ? selected.name
+                    : "Choose a campus..."}
               </Text>
             </View>
             <ChevronDown size={20} color="#9E9E9E" />
           </Pressable>
+
+          {erroredCampuses && (
+            <View style={styles.errorRow}>
+              <Text style={styles.errorText}>
+                Couldn&apos;t load campuses. Check your connection.
+              </Text>
+              <Pressable
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  refetchCampuses();
+                }}
+                style={({ pressed }) => [
+                  styles.retryButton,
+                  pressed && styles.retryButtonPressed,
+                ]}
+              >
+                <RefreshCw size={14} color="#0B6623" strokeWidth={2.5} />
+                <Text style={styles.retryText}>Retry</Text>
+              </Pressable>
+            </View>
+          )}
 
           {selected && (
             <Animated.View
@@ -182,6 +236,20 @@ export default function LandingScreen() {
               </Text>
             </LinearGradient>
           </Pressable>
+
+          {(configured || user) && (
+            <Pressable
+              onPress={handleAccountAction}
+              style={({ pressed }) => [
+                styles.accountLink,
+                pressed && styles.accountLinkPressed,
+              ]}
+            >
+              <Text style={styles.accountLinkText}>
+                {user ? `Sign out ${accountName}` : "Sign in to save favorites"}
+              </Text>
+            </Pressable>
+          )}
         </Animated.View>
 
         <Animated.View
@@ -215,9 +283,18 @@ export default function LandingScreen() {
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Select Campus</Text>
             <FlatList
-              data={CAMPUSES}
+              data={campuses}
               keyExtractor={(item) => item.id}
-              scrollEnabled={CAMPUSES.length > 5}
+              scrollEnabled={campuses.length > 5}
+              ListEmptyComponent={
+                <View style={styles.modalEmpty}>
+                  <Text style={styles.modalEmptyText}>
+                    {loadingCampuses
+                      ? "Loading campuses..."
+                      : "No campuses available yet"}
+                  </Text>
+                </View>
+              }
               renderItem={({ item }) => (
                 <Pressable
                   onPress={() => handleSelectCampus(item.id)}
@@ -393,6 +470,50 @@ const styles = StyleSheet.create({
   dropdownPlaceholder: {
     color: "#9E9E9E",
   },
+  errorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    backgroundColor: "#E8F5E9",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  errorText: {
+    flex: 1,
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    color: "#5A6B5A",
+    lineHeight: 18,
+  },
+  retryButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: "#FFFFFF",
+  },
+  retryButtonPressed: {
+    opacity: 0.7,
+  },
+  retryText: {
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+    color: "#0B6623",
+  },
+  modalEmpty: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    alignItems: "center",
+  },
+  modalEmptyText: {
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+    color: "#9E9E9E",
+  },
   selectedInfo: {
     flexDirection: "row",
     alignItems: "center",
@@ -431,6 +552,19 @@ const styles = StyleSheet.create({
   },
   exploreTextDisabled: {
     color: "#9E9E9E",
+  },
+  accountLink: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 8,
+  },
+  accountLinkPressed: {
+    opacity: 0.7,
+  },
+  accountLinkText: {
+    fontSize: 14,
+    fontFamily: "Inter_500Medium",
+    color: colors.light.tint,
   },
   footer: {
     alignItems: "center",

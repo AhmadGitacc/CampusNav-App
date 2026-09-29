@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useMemo } from "react";
+import React, { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import {
   StyleSheet,
   Text,
@@ -9,7 +9,6 @@ import {
   ActivityIndicator,
   TextInput,
 } from "react-native";
-import * as Location from "expo-location";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
 import {
@@ -18,171 +17,53 @@ import {
   Crosshair,
   ArrowLeft,
   X,
-  Building2,
-  BookOpen,
-  Library,
-  Flag,
   Search,
+  RefreshCw,
+  CircleCheck,
+  Check,
+  TriangleAlert,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
-import Animated, {
-  FadeInUp,
-  SlideInDown,
-  SlideOutDown,
-} from "react-native-reanimated";
+import Animated, { SlideInDown, SlideOutDown } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import CampusMap from "@/components/CampusMap";
+import { MarkerIcon } from "@/components/MarkerIcon";
+import { OfflineBanner } from "@/components/OfflineBanner";
+import { RouteProgressBar } from "@/components/RouteProgressBar";
+import { ManeuverGlyph, NavigationSteps } from "@/components/NavigationSteps";
+import { StepFreeToggle } from "@/components/StepFreeToggle";
+import {
+  getCurrentUserLocation,
+  LocationPermissionError,
+} from "@/lib/location";
+import {
+  calculateStraightDistance,
+  formatDistance,
+  formatEstimatedWalkTime,
+  formatWalkTime,
+  segmentDistance,
+  toLatLon,
+} from "@/lib/geo";
+import { getLastLocation } from "@/lib/route-cache";
+import { useOnline } from "@/lib/useOnline";
+import { useStepFreePreference } from "@/lib/prefs";
+import {
+  useWalkingNavigation,
+  type MapRegion,
+} from "@/lib/navigation/useWalkingNavigation";
+import { useCampus, useBuildings } from "@/lib/api/campuses";
+import { isSupabaseConfigured } from "@/lib/supabase";
+import { fallbackBuildings } from "@/lib/data/campus-fallback";
+import { toCampusMarker, type CampusMarker, type LatLon } from "@shared/types";
 
-const NSUK_MARKERS = [
-  {
-    id: "senate",
-    title: "Senate Building",
-    description: "NSUK Senate Building - Administrative headquarters",
-    lat: 8.849,
-    lng: 7.8785,
-    icon: "building",
-  },
-  {
-    id: "law",
-    title: "Faculty of Law",
-    description: "Faculty of Law - Legal studies department",
-    lat: 8.8465,
-    lng: 7.876,
-    icon: "book",
-  },
-  {
-    id: "library",
-    title: "Main Library",
-    description: "NSUK Main Library - Knowledge center",
-    lat: 8.8475,
-    lng: 7.877,
-    icon: "library",
-  },
-  {
-    id: "convocation",
-    title: "Convocation Square",
-    description: "Convocation Square - Events and ceremonies",
-    lat: 8.8482,
-    lng: 7.8795,
-    icon: "flag",
-  },
-];
-
-function getMarkerIcon(icon: string) {
-  const props = { size: 16, color: "#FFFFFF", strokeWidth: 2.5 };
-  switch (icon) {
-    case "building":
-      return <Building2 {...props} />;
-    case "book":
-      return <BookOpen {...props} />;
-    case "library":
-      return <Library {...props} />;
-    case "flag":
-      return <Flag {...props} />;
-    default:
-      return <MapPin {...props} />;
-  }
-}
-
-function decodeOSRMGeometry(
-  encoded: string
-): { latitude: number; longitude: number }[] {
-  const points: { latitude: number; longitude: number }[] = [];
-  let index = 0;
-  let lat = 0;
-  let lng = 0;
-
-  while (index < encoded.length) {
-    let b: number;
-    let shift = 0;
-    let result = 0;
-    do {
-      b = encoded.charCodeAt(index++) - 63;
-      result |= (b & 0x1f) << shift;
-      shift += 5;
-    } while (b >= 0x20);
-    lat += result & 1 ? ~(result >> 1) : result >> 1;
-
-    shift = 0;
-    result = 0;
-    do {
-      b = encoded.charCodeAt(index++) - 63;
-      result |= (b & 0x1f) << shift;
-      shift += 5;
-    } while (b >= 0x20);
-    lng += result & 1 ? ~(result >> 1) : result >> 1;
-
-    points.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
-  }
-  return points;
-}
-
-async function fetchWalkingRoute(
-  from: { latitude: number; longitude: number },
-  to: { latitude: number; longitude: number }
-): Promise<{
-  coordinates: { latitude: number; longitude: number }[];
-  distanceMeters: number;
-  durationSeconds: number;
-}> {
-  const url = `https://router.project-osrm.org/route/v1/foot/${from.longitude},${from.latitude};${to.longitude},${to.latitude}?overview=full&geometries=polyline`;
-
-  const response = await globalThis.fetch(url);
-  const data = await response.json();
-
-  if (data.code === "Ok" && data.routes && data.routes.length > 0) {
-    const route = data.routes[0];
-    const coordinates = decodeOSRMGeometry(route.geometry);
-    return {
-      coordinates,
-      distanceMeters: route.distance,
-      durationSeconds: route.duration,
-    };
-  }
-
-  return {
-    coordinates: [from, to],
-    distanceMeters: calculateStraightDistance(
-      from.latitude,
-      from.longitude,
-      to.latitude,
-      to.longitude
-    ),
-    durationSeconds: 0,
-  };
-}
-
-function calculateStraightDistance(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number
-): number {
-  const R = 6371e3;
-  const p1 = (lat1 * Math.PI) / 180;
-  const p2 = (lat2 * Math.PI) / 180;
-  const dp = ((lat2 - lat1) * Math.PI) / 180;
-  const dl = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dp / 2) * Math.sin(dp / 2) +
-    Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
-function formatDistance(meters: number): string {
-  if (meters < 1000) return `${Math.round(meters)}m`;
-  return `${(meters / 1000).toFixed(1)}km`;
-}
-
-function formatWalkTime(seconds: number): string {
-  const minutes = Math.ceil(seconds / 60);
-  if (minutes < 1) return "< 1 min";
-  return `${minutes} min walk`;
-}
+/** How long a manual pan keeps the camera away from the walker. */
+const FOLLOW_SUSPEND_MS = 5000;
+/** Only pull the camera back once the walker has drifted this far off-centre. */
+const FOLLOW_DRIFT_M = 200;
 
 export default function MapScreen() {
   const insets = useSafeAreaInsets();
+  const online = useOnline();
   const params = useLocalSearchParams<{
     campusId: string;
     lat: string;
@@ -190,104 +71,163 @@ export default function MapScreen() {
   }>();
 
   const mapRef = useRef<any>(null);
+  // Follow bookkeeping: programmatic moves must not read as a manual pan, and
+  // a recent pan suspends follow so the walker can look around freely.
+  const programMoveUntilRef = useRef(0);
+  const lastManualMoveRef = useRef(0);
+  const regionCenterRef = useRef<LatLon | null>(null);
 
   const campusLat = parseFloat(params.lat || "8.8471");
   const campusLng = parseFloat(params.lng || "7.8776");
 
-  const [userLocation, setUserLocation] = useState<{
-    latitude: number;
-    longitude: number;
-  } | null>(null);
-  const [selectedMarker, setSelectedMarker] = useState<
-    (typeof NSUK_MARKERS)[0] | null
-  >(null);
-  const [routeCoords, setRouteCoords] = useState<
-    { latitude: number; longitude: number }[] | null
-  >(null);
+  const {
+    data: campus,
+    isLoading: campusLoading,
+    isError: campusError,
+    refetch: refetchCampus,
+  } = useCampus(params.campusId);
+  const {
+    data: fetchedBuildings,
+    isLoading: buildingsLoading,
+    isError: buildingsError,
+    refetch: refetchBuildings,
+  } = useBuildings(params.campusId);
+
+  // Guest mode (no backend yet) uses the bundled dataset; §3 added the offline cache.
+  const buildings = useMemo(
+    () =>
+      isSupabaseConfigured
+        ? (fetchedBuildings ?? [])
+        : fallbackBuildings(params.campusId),
+    [fetchedBuildings, params.campusId]
+  );
+  const markers = useMemo(() => buildings.map(toCampusMarker), [buildings]);
+  const loadingBuildings =
+    isSupabaseConfigured && (campusLoading || buildingsLoading);
+  const erroredBuildings = isSupabaseConfigured && (campusError || buildingsError);
+  // Slug resolved but matched nothing — a stale or hand-edited deep link.
+  const campusMissing =
+    isSupabaseConfigured &&
+    !!params.campusId &&
+    !campusLoading &&
+    !campusError &&
+    !campus;
+  const noBuildings =
+    !loadingBuildings && !erroredBuildings && !campusMissing && markers.length === 0;
+
+  const [userLocation, setUserLocation] = useState<LatLon | null>(null);
+  const [selectedMarker, setSelectedMarker] = useState<CampusMarker | null>(
+    null
+  );
   const [locationLoading, setLocationLoading] = useState(false);
-  const [showRoute, setShowRoute] = useState(false);
-  const [routeDistance, setRouteDistance] = useState<number | null>(null);
-  const [routeDuration, setRouteDuration] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
+  const [stepsExpanded, setStepsExpanded] = useState(false);
+  const { stepFree, ready: stepFreeReady, setStepFree } = useStepFreePreference();
 
   const filteredMarkers = useMemo(() => {
     if (!searchQuery.trim()) return [];
     const q = searchQuery.toLowerCase();
-    return NSUK_MARKERS.filter(
+    return markers.filter(
       (m) =>
         m.title.toLowerCase().includes(q) ||
         m.description.toLowerCase().includes(q)
     );
-  }, [searchQuery]);
+  }, [searchQuery, markers]);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
 
+  const animateTo = useCallback((region: MapRegion, duration = 600) => {
+    programMoveUntilRef.current = Date.now() + duration + 250;
+    mapRef.current?.animateToRegion?.(region, duration);
+  }, []);
+
+  const handleRegionChange = useCallback((center: LatLon) => {
+    regionCenterRef.current = center;
+    if (Date.now() < programMoveUntilRef.current) return;
+    lastManualMoveRef.current = Date.now();
+  }, []);
+
+  const handleCameraFit = useCallback(
+    (region: MapRegion) => animateTo(region, 800),
+    [animateTo]
+  );
+
+  const handleFollowUser = useCallback(
+    (point: LatLon) => {
+      if (Date.now() - lastManualMoveRef.current < FOLLOW_SUSPEND_MS) return;
+      const center = regionCenterRef.current;
+      if (center && segmentDistance(center, point) < FOLLOW_DRIFT_M) return;
+      animateTo(
+        { ...point, latitudeDelta: 0.005, longitudeDelta: 0.005 },
+        600
+      );
+    },
+    [animateTo]
+  );
+
+  const handleNotice = useCallback(
+    (message: string) => {
+      Alert.alert("Location Unavailable", message);
+    },
+    []
+  );
+
+  const navigation = useWalkingNavigation({
+    destination: selectedMarker ? toLatLon(selectedMarker) : null,
+    destinationName: selectedMarker?.title,
+    campusId: params.campusId,
+    buildingId: selectedMarker?.id ?? null,
+    stepFree,
+    onCameraFit: handleCameraFit,
+    onFollowUser: handleFollowUser,
+    onNotice: handleNotice,
+  });
+
   const requestLocation = useCallback(async () => {
     setLocationLoading(true);
     try {
-      if (Platform.OS === "web") {
-        const position = await new Promise<GeolocationPosition>(
-          (resolve, reject) => {
-            navigator.geolocation.getCurrentPosition(resolve, reject, {
-              enableHighAccuracy: true,
-              timeout: 10000,
-            });
-          }
+      const loc = await getCurrentUserLocation();
+      setUserLocation(loc);
+      animateTo(
+        { ...loc, latitudeDelta: 0.005, longitudeDelta: 0.005 },
+        800
+      );
+    } catch (error) {
+      // Offline or GPS unavailable: fall back to the last known position so
+      // directions still work instead of dead-ending.
+      const lastKnown = await getLastLocation();
+      if (lastKnown) {
+        setUserLocation(lastKnown);
+        Alert.alert(
+          "Location Unavailable",
+          "Using your last known location (up to 10 minutes old)."
         );
-        const loc = {
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-        };
-        setUserLocation(loc);
-        mapRef.current?.animateToRegion?.(
-          { ...loc, latitudeDelta: 0.005, longitudeDelta: 0.005 },
-          800
+      } else if (error instanceof LocationPermissionError) {
+        Alert.alert(
+          "Location Permission",
+          "Please enable location access to use this feature."
         );
       } else {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== "granted") {
-          Alert.alert(
-            "Location Permission",
-            "Please enable location access to use this feature."
-          );
-          setLocationLoading(false);
-          return;
-        }
-        const location = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.High,
-        });
-        const loc = {
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-        };
-        setUserLocation(loc);
-        mapRef.current?.animateToRegion?.(
-          { ...loc, latitudeDelta: 0.005, longitudeDelta: 0.005 },
-          800
-        );
+        Alert.alert("Location Error", "Could not get your current location.");
       }
-    } catch {
-      Alert.alert("Location Error", "Could not get your current location.");
     }
     setLocationLoading(false);
-  }, []);
+  }, [animateTo]);
 
-  const handleSearchSelect = (marker: (typeof NSUK_MARKERS)[0]) => {
+  const handleSearchSelect = (marker: CampusMarker) => {
     setSearchQuery("");
     setSearchFocused(false);
     handleMarkerPress(marker);
   };
 
-  const handleMarkerPress = (marker: (typeof NSUK_MARKERS)[0]) => {
+  const handleMarkerPress = (marker: CampusMarker) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    navigation.cancel();
+    setStepsExpanded(false);
     setSelectedMarker(marker);
-    setShowRoute(false);
-    setRouteCoords(null);
-    setRouteDistance(null);
-    setRouteDuration(null);
-    mapRef.current?.animateToRegion?.(
+    animateTo(
       {
         latitude: marker.lat,
         longitude: marker.lng,
@@ -298,104 +238,22 @@ export default function MapScreen() {
     );
   };
 
-  const handleGetDirections = async () => {
-    if (!selectedMarker) return;
+  const handleGetDirections = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-
-    let currentLocation = userLocation;
-    if (!currentLocation) {
-      setLocationLoading(true);
-      try {
-        if (Platform.OS === "web") {
-          const position = await new Promise<GeolocationPosition>(
-            (resolve, reject) => {
-              navigator.geolocation.getCurrentPosition(resolve, reject, {
-                enableHighAccuracy: true,
-                timeout: 10000,
-              });
-            }
-          );
-          currentLocation = {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-          };
-        } else {
-          const { status } =
-            await Location.requestForegroundPermissionsAsync();
-          if (status !== "granted") {
-            Alert.alert(
-              "Location Permission",
-              "Please enable location to get directions."
-            );
-            setLocationLoading(false);
-            return;
-          }
-          const location = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.High,
-          });
-          currentLocation = {
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-          };
-        }
-        setUserLocation(currentLocation);
-      } catch {
-        Alert.alert("Location Error", "Could not get your location.");
-        setLocationLoading(false);
-        return;
-      }
-      setLocationLoading(false);
-    }
-
-    const dest = {
-      latitude: selectedMarker.lat,
-      longitude: selectedMarker.lng,
-    };
-
-    setLocationLoading(true);
-    try {
-      const result = await fetchWalkingRoute(currentLocation, dest);
-      setRouteCoords(result.coordinates);
-      setRouteDistance(result.distanceMeters);
-      setRouteDuration(result.durationSeconds);
-      setShowRoute(true);
-
-      const allPoints = result.coordinates;
-      let minLat = allPoints[0].latitude;
-      let maxLat = allPoints[0].latitude;
-      let minLng = allPoints[0].longitude;
-      let maxLng = allPoints[0].longitude;
-      for (const p of allPoints) {
-        if (p.latitude < minLat) minLat = p.latitude;
-        if (p.latitude > maxLat) maxLat = p.latitude;
-        if (p.longitude < minLng) minLng = p.longitude;
-        if (p.longitude > maxLng) maxLng = p.longitude;
-      }
-      const padding = 0.003;
-
-      mapRef.current?.animateToRegion?.(
-        {
-          latitude: (minLat + maxLat) / 2,
-          longitude: (minLng + maxLng) / 2,
-          latitudeDelta: Math.max(maxLat - minLat + padding * 2, 0.005),
-          longitudeDelta: Math.max(maxLng - minLng + padding * 2, 0.005),
-        },
-        800
-      );
-    } catch {
-      Alert.alert("Routing Error", "Could not find a walking route. Please try again.");
-    }
-    setLocationLoading(false);
+    void navigation.start();
   };
 
-  const handleDismissRoute = () => {
+  const handleCancelNavigation = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setShowRoute(false);
-    setRouteCoords(null);
-    setRouteDistance(null);
-    setRouteDuration(null);
+    navigation.cancel();
+  };
+
+  const handleDismissSheet = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    navigation.cancel();
+    setStepsExpanded(false);
     setSelectedMarker(null);
-    mapRef.current?.animateToRegion?.(
+    animateTo(
       {
         latitude: campusLat,
         longitude: campusLng,
@@ -406,30 +264,68 @@ export default function MapScreen() {
     );
   };
 
-  const displayDistance = routeDistance ?? (
-    userLocation && selectedMarker
+  const route = navigation.route;
+  const hasRoute = route !== null;
+  const arrived = navigation.state === "arrived";
+  const busy = navigation.isBusy || locationLoading;
+  // A step-free request the campus graph could not satisfy is stated plainly
+  // rather than hidden: the fallback may well include stairs, and someone who
+  // needs step-free needs to know before they set off.
+  const stepFreeFellBack = stepFree && route?.stepFreeSatisfied === false;
+  // The tracker owns the position while navigating; the manual locate button
+  // owns it otherwise.
+  const activeLocation = navigation.position ?? userLocation;
+
+  const progressFraction =
+    route && navigation.progress && route.distanceMeters > 0
+      ? Math.min(
+          1,
+          Math.max(
+            0,
+            (route.distanceMeters - navigation.progress.remainingMeters) /
+              route.distanceMeters
+          )
+        )
+      : 0;
+  const cueStep = navigation.steps[navigation.progress?.cueIndex ?? 0] ?? null;
+  const remainingMeters = navigation.progress?.remainingMeters ?? null;
+
+  // Toggling step-free re-routes straight away when a route is already drawn, so
+  // the preference never appears to have done nothing. The ref guard keeps the
+  // initial mount (and every later re-render) from re-requesting a fix.
+  const previousStepFreeRef = useRef(stepFree);
+  useEffect(() => {
+    if (!stepFreeReady) return;
+    if (previousStepFreeRef.current === stepFree) return;
+    previousStepFreeRef.current = stepFree;
+    if (navigation.route) void navigation.start();
+  }, [stepFree, stepFreeReady, navigation]);
+
+  const displayDistance = route?.distanceMeters ?? (
+    activeLocation && selectedMarker
       ? calculateStraightDistance(
-          userLocation.latitude,
-          userLocation.longitude,
+          activeLocation.latitude,
+          activeLocation.longitude,
           selectedMarker.lat,
           selectedMarker.lng
         )
       : null
   );
-  const displayDuration = routeDuration;
+  const displayDuration = route?.durationSeconds ?? null;
 
   return (
     <View style={styles.container}>
       <CampusMap
         ref={mapRef}
-        markers={NSUK_MARKERS}
+        markers={markers}
         selectedMarkerId={selectedMarker?.id || null}
         onMarkerPress={handleMarkerPress}
-        userLocation={userLocation}
-        routeCoords={routeCoords}
-        showRoute={showRoute}
+        userLocation={activeLocation}
+        routeCoords={route?.coordinates ?? null}
+        showRoute={hasRoute}
         campusLat={campusLat}
         campusLng={campusLng}
+        onRegionChange={handleRegionChange}
       />
 
       <View
@@ -453,7 +349,9 @@ export default function MapScreen() {
 
         <View style={styles.campusLabel}>
           <MapPin size={14} color="#0B6623" strokeWidth={2.5} />
-          <Text style={styles.campusLabelText}>NSUK Campus</Text>
+          <Text style={styles.campusLabelText} numberOfLines={1}>
+            {campus?.name ?? (loadingBuildings ? "Loading..." : "Campus")}
+          </Text>
         </View>
 
         <Pressable
@@ -474,6 +372,77 @@ export default function MapScreen() {
           )}
         </Pressable>
       </View>
+
+      {loadingBuildings && (
+        <View style={styles.overlay} pointerEvents="none">
+          <View style={styles.overlayCard}>
+            <ActivityIndicator size="small" color="#0B6623" />
+            <Text style={styles.overlayText}>Loading campus buildings...</Text>
+          </View>
+        </View>
+      )}
+
+      {erroredBuildings && (
+        <View style={styles.overlay}>
+          <View style={styles.overlayCard}>
+            <Text style={styles.overlayTitle}>Couldn&apos;t load buildings</Text>
+            <Text style={styles.overlayText}>
+              Check your connection and try again.
+            </Text>
+            <Pressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                refetchCampus();
+                refetchBuildings();
+              }}
+              style={({ pressed }) => [
+                styles.overlayButton,
+                pressed && styles.buttonPressed,
+              ]}
+            >
+              <RefreshCw size={16} color="#0B6623" strokeWidth={2.5} />
+              <Text style={styles.overlayButtonText}>Retry</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
+
+      {noBuildings && (
+        <View style={styles.overlay} pointerEvents="none">
+          <View style={styles.overlayCard}>
+            <MapPin size={32} color="#9E9E9E" strokeWidth={2} />
+            <Text style={styles.overlayTitle}>No buildings yet</Text>
+            <Text style={styles.overlayText}>
+              Places for this campus haven&apos;t been added.
+            </Text>
+          </View>
+        </View>
+      )}
+
+      {campusMissing && (
+        <View style={styles.overlay}>
+          <View style={styles.overlayCard}>
+            <MapPin size={32} color="#9E9E9E" strokeWidth={2} />
+            <Text style={styles.overlayTitle}>Campus not found</Text>
+            <Text style={styles.overlayText}>
+              This link points to a campus that isn&apos;t available.
+            </Text>
+            <Pressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.back();
+              }}
+              style={({ pressed }) => [
+                styles.overlayButton,
+                pressed && styles.buttonPressed,
+              ]}
+            >
+              <ArrowLeft size={16} color="#0B6623" strokeWidth={2.5} />
+              <Text style={styles.overlayButtonText}>Go back</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
 
       <View
         style={[
@@ -525,7 +494,7 @@ export default function MapScreen() {
                   ]}
                 >
                   <View style={styles.searchResultIcon}>
-                    {getMarkerIcon(marker.icon)}
+                    <MarkerIcon icon={marker.icon} />
                   </View>
                   <View style={styles.searchResultText}>
                     <Text style={styles.searchResultTitle}>{marker.title}</Text>
@@ -539,6 +508,10 @@ export default function MapScreen() {
           </View>
         )}
       </View>
+
+      {!online && (
+        <OfflineBanner top={insets.top + webTopInset + 64 + 58} />
+      )}
 
       {!selectedMarker && (
         <Animated.View
@@ -566,16 +539,24 @@ export default function MapScreen() {
 
           <View style={styles.sheetHeader}>
             <View style={styles.sheetMarkerIcon}>
-              {getMarkerIcon(selectedMarker.icon)}
+              {arrived ? (
+                <CircleCheck size={20} color="#FFFFFF" strokeWidth={2.5} />
+              ) : (
+                <MarkerIcon icon={selectedMarker.icon} />
+              )}
             </View>
             <View style={styles.sheetHeaderText}>
-              <Text style={styles.sheetTitle}>{selectedMarker.title}</Text>
+              <Text style={styles.sheetTitle}>
+                {arrived ? "You’ve arrived" : selectedMarker.title}
+              </Text>
               <Text style={styles.sheetDescription}>
-                {selectedMarker.description}
+                {arrived
+                  ? `${selectedMarker.title} · ${selectedMarker.description}`
+                  : selectedMarker.description}
               </Text>
             </View>
             <Pressable
-              onPress={handleDismissRoute}
+              onPress={handleDismissSheet}
               style={({ pressed }) => [
                 styles.closeSheet,
                 pressed && { opacity: 0.6 },
@@ -585,72 +566,210 @@ export default function MapScreen() {
             </Pressable>
           </View>
 
-          {displayDistance !== null && (
-            <View style={styles.distanceRow}>
-              <Navigation size={14} color="#0B6623" />
-              <Text style={styles.distanceText}>
-                {formatDistance(displayDistance)}{showRoute ? "" : " (straight line)"}
-              </Text>
-              <View style={styles.distanceDot} />
-              <Text style={styles.distanceText}>
-                {displayDuration !== null && displayDuration > 0
-                  ? formatWalkTime(displayDuration)
-                  : `~${Math.ceil(displayDistance / 80)} min walk`}
-              </Text>
-            </View>
-          )}
-
-          <View style={styles.sheetActions}>
-            <Pressable
-              onPress={handleGetDirections}
-              disabled={locationLoading}
-              style={({ pressed }) => [
-                styles.directionsButton,
-                pressed && { transform: [{ scale: 0.97 }] },
-              ]}
-            >
-              <LinearGradient
-                colors={["#0B6623", "#0D7A2B"]}
-                style={styles.directionsGradient}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-              >
-                {locationLoading ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <Navigation size={18} color="#FFFFFF" />
-                )}
-                <Text style={styles.directionsText}>
-                  {showRoute ? "Update Route" : "Get Directions"}
+          {arrived ? (
+            <>
+              <View style={styles.arrivedRow}>
+                <CircleCheck size={32} color="#0B6623" strokeWidth={2.5} />
+                <Text style={styles.arrivedText}>
+                  You&apos;re at {selectedMarker.title}. Total walk was{" "}
+                  {formatDistance(route?.distanceMeters ?? 0)}.
                 </Text>
-              </LinearGradient>
-            </Pressable>
-
-            {!userLocation && (
+              </View>
               <Pressable
-                onPress={requestLocation}
-                disabled={locationLoading}
+                onPress={handleDismissSheet}
                 style={({ pressed }) => [
-                  styles.locateMeButton,
+                  styles.directionsButton,
                   pressed && { transform: [{ scale: 0.97 }] },
                 ]}
               >
-                <Crosshair size={18} color="#0B6623" />
-                <Text style={styles.locateMeText}>Locate Me First</Text>
+                <LinearGradient
+                  colors={["#0B6623", "#0D7A2B"]}
+                  style={styles.directionsGradient}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                >
+                  <Check size={18} color="#FFFFFF" />
+                  <Text style={styles.directionsText}>Done</Text>
+                </LinearGradient>
               </Pressable>
-            )}
-          </View>
+            </>
+          ) : hasRoute ? (
+            busy ? (
+              <View style={styles.busyRow}>
+                <ActivityIndicator size="small" color="#0B6623" />
+                <Text style={styles.busyText}>
+                  {navigation.state === "routing"
+                    ? "Recalculating…"
+                    : "Getting your location…"}
+                </Text>
+              </View>
+            ) : (
+              <>
+                <RouteProgressBar progress={progressFraction} />
 
-          {showRoute && (
-            <Animated.View
-              entering={FadeInUp.duration(300)}
-              style={styles.routeActive}
-            >
-              <View style={styles.routeActiveDot} />
-              <Text style={styles.routeActiveText}>
-                Route is shown on the map
-              </Text>
-            </Animated.View>
+                {cueStep && (
+                  <View style={styles.instructionRow}>
+                    <View style={styles.instructionIcon}>
+                      <ManeuverGlyph icon={cueStep.icon} size={24} />
+                    </View>
+                    <View style={styles.instructionTextWrap}>
+                      <Text style={styles.instructionText} numberOfLines={2}>
+                        {cueStep.instruction}
+                      </Text>
+                      {navigation.progress &&
+                        navigation.progress.distanceToCueMeters > 0 && (
+                          <Text style={styles.instructionDistance}>
+                            in{" "}
+                            {formatDistance(
+                              navigation.progress.distanceToCueMeters
+                            )}
+                          </Text>
+                        )}
+                    </View>
+                  </View>
+                )}
+
+                <NavigationSteps
+                  steps={navigation.steps}
+                  activeIndex={navigation.progress?.cueIndex ?? 0}
+                  expanded={stepsExpanded}
+                  onToggle={() => setStepsExpanded((open) => !open)}
+                />
+
+                {remainingMeters !== null && remainingMeters > 0 && (
+                  <View style={styles.distanceRow}>
+                    <Navigation size={14} color="#0B6623" />
+                    <Text style={styles.distanceText}>
+                      {formatDistance(remainingMeters)} left
+                    </Text>
+                    <View style={styles.distanceDot} />
+                    <Text style={styles.distanceText}>
+                      {formatEstimatedWalkTime(remainingMeters)}
+                    </Text>
+                  </View>
+                )}
+
+                {route.approximate && (
+                  <View style={styles.noticeRow}>
+                    <RefreshCw size={14} color="#8A6D1F" strokeWidth={2.5} />
+                    <Text style={styles.noticeText}>
+                      Approximate route — no walking path data available
+                    </Text>
+                  </View>
+                )}
+
+                {stepFreeFellBack && (
+                  <View style={styles.noticeRow}>
+                    <TriangleAlert size={14} color="#8A6D1F" strokeWidth={2.5} />
+                    <Text style={styles.noticeText}>
+                      {route.entrance
+                        ? `No step-free path found; heading to the nearest entrance (${route.entrance.name}).`
+                        : "No step-free path found on this route — it may include stairs."}
+                    </Text>
+                  </View>
+                )}
+
+                {navigation.message && (
+                  <View style={styles.noticeRow}>
+                    <RefreshCw size={14} color="#8A6D1F" strokeWidth={2.5} />
+                    <Text style={styles.noticeText}>
+                      {navigation.message}
+                    </Text>
+                  </View>
+                )}
+
+                <Pressable
+                  onPress={handleCancelNavigation}
+                  style={({ pressed }) => [
+                    styles.locateMeButton,
+                    pressed && { transform: [{ scale: 0.97 }] },
+                  ]}
+                >
+                  <X size={18} color="#0B6623" />
+                  <Text style={styles.locateMeText}>Cancel</Text>
+                </Pressable>
+              </>
+            )
+          ) : (
+            <>
+              {displayDistance !== null && (
+                <View style={styles.distanceRow}>
+                  <Navigation size={14} color="#0B6623" />
+                  <Text style={styles.distanceText}>
+                    {formatDistance(displayDistance)}
+                    {hasRoute ? "" : " (straight line)"}
+                  </Text>
+                  <View style={styles.distanceDot} />
+                  <Text style={styles.distanceText}>
+                    {displayDuration !== null && displayDuration > 0
+                      ? formatWalkTime(displayDuration)
+                      : formatEstimatedWalkTime(displayDistance)}
+                  </Text>
+                </View>
+              )}
+
+              {navigation.message && (
+                <View style={styles.noticeRow}>
+                  <RefreshCw size={14} color="#8A6D1F" strokeWidth={2.5} />
+                  <Text style={styles.noticeText}>
+                    {navigation.message}
+                  </Text>
+                </View>
+              )}
+
+              {/* The preference outlives the sheet, so it sits above the actions
+                  and stays put between destinations. */}
+              <StepFreeToggle
+                value={stepFree}
+                onChange={setStepFree}
+                disabled={!stepFreeReady}
+              />
+
+              <View style={styles.sheetActions}>
+                <Pressable
+                  onPress={handleGetDirections}
+                  disabled={busy}
+                  style={({ pressed }) => [
+                    styles.directionsButton,
+                    pressed && { transform: [{ scale: 0.97 }] },
+                  ]}
+                >
+                  <LinearGradient
+                    colors={["#0B6623", "#0D7A2B"]}
+                    style={styles.directionsGradient}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                  >
+                    {busy ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <Navigation size={18} color="#FFFFFF" />
+                    )}
+                    <Text style={styles.directionsText}>
+                      {busy
+                        ? "Locating…"
+                        : hasRoute
+                          ? "Update Route"
+                          : "Get Directions"}
+                    </Text>
+                  </LinearGradient>
+                </Pressable>
+
+                {!activeLocation && (
+                  <Pressable
+                    onPress={requestLocation}
+                    disabled={locationLoading}
+                    style={({ pressed }) => [
+                      styles.locateMeButton,
+                      pressed && { transform: [{ scale: 0.97 }] },
+                    ]}
+                  >
+                    <Crosshair size={18} color="#0B6623" />
+                    <Text style={styles.locateMeText}>Locate Me First</Text>
+                  </Pressable>
+                )}
+              </View>
+            </>
           )}
         </Animated.View>
       )}
@@ -684,6 +803,54 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 4,
+  },
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+  overlayCard: {
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    paddingHorizontal: 24,
+    paddingVertical: 28,
+    maxWidth: 300,
+    shadowColor: "#1B2E1B",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
+    elevation: 6,
+  },
+  overlayTitle: {
+    fontSize: 16,
+    fontFamily: "Inter_600SemiBold",
+    color: "#1B2E1B",
+    textAlign: "center",
+  },
+  overlayText: {
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+    color: "#5A6B5A",
+    textAlign: "center",
+    lineHeight: 20,
+  },
+  overlayButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 8,
+    backgroundColor: "#E8F5E9",
+    borderRadius: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+  },
+  overlayButtonText: {
+    fontSize: 15,
+    fontFamily: "Inter_600SemiBold",
+    color: "#0B6623",
   },
   campusLabel: {
     flexDirection: "row",
@@ -859,22 +1026,72 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     color: "#0B6623",
   },
-  routeActive: {
+  busyRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    paddingVertical: 4,
+    paddingVertical: 12,
   },
-  routeActiveDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#0B6623",
+  busyText: {
+    fontSize: 14,
+    fontFamily: "Inter_500Medium",
+    color: "#5A6B5A",
   },
-  routeActiveText: {
+  instructionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  instructionIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: "#E8F5E9",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  instructionTextWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  instructionText: {
+    fontSize: 18,
+    fontFamily: "Inter_700Bold",
+    color: "#1B2E1B",
+    lineHeight: 24,
+  },
+  instructionDistance: {
     fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    color: "#5A6B5A",
+  },
+  noticeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#E8F5E9",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  noticeText: {
+    flex: 1,
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    color: "#8A6D1F",
+    lineHeight: 17,
+  },
+  arrivedRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  arrivedText: {
+    flex: 1,
+    fontSize: 14,
     fontFamily: "Inter_400Regular",
     color: "#5A6B5A",
+    lineHeight: 20,
   },
   searchContainer: {
     position: "absolute",

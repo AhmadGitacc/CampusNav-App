@@ -6,6 +6,7 @@ const WHITE = "#FFFFFF";
 const OFF_WHITE = "#F5F7F5";
 const GRAY = "#9E9E9E";
 const DARK_GRAY = "#424242";
+const DANGER = "#C62828";
 const TEXT_PRIMARY = "#1B2E1B";
 const TEXT_SECONDARY = "#5A6B5A";
 
@@ -23,9 +24,13 @@ export default {
     tabIconSelected: FOREST_GREEN,
     card: WHITE,
     border: "#D5E0D5",
+    separator: "#F0F2F0",
+    surface: WHITE,
+    surfacePressed: OFF_WHITE,
     shadow: "rgba(11, 102, 35, 0.08)",
     white: WHITE,
     gray: GRAY,
     darkGray: DARK_GRAY,
+    danger: DANGER,
   },
 };
