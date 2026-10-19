@@ -1,7 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase";
 import { toBuilding, useCampus } from "@/lib/api/campuses";
-import { importBuildingSchema, type ImportBuilding } from "@shared/schema";
+import {
+  entranceKinds,
+  importBuildingSchema,
+  type EntranceKind,
+  type ImportBuilding,
+} from "@shared/schema";
 import type { Building } from "@shared/types";
 
 /**
@@ -82,6 +87,7 @@ function describeWriteError(error: { code?: string; message: string }): Error {
 
 const ADMIN_BUILDINGS_KEY = "admin-buildings";
 const ADMIN_STATS_KEY = "admin-stats";
+const ADMIN_ENTRANCES_KEY = "admin-entrances";
 const AUDIT_LOG_KEY = "audit-log";
 
 /** Everything a buildings write makes stale. Prefixes, so the slug is implicit. */
@@ -126,6 +132,10 @@ export interface AdminStats {
   buildings: number;
   unpublished: number;
   pendingCorrections: number;
+  /** Surveyed doors on published buildings of this campus. */
+  entrances: number;
+  exits: number;
+  stepFreeEntrances: number;
 }
 
 export function useAdminStats(campusSlug: string | undefined) {
@@ -139,30 +149,54 @@ export function useAdminStats(campusSlug: string | undefined) {
       const supabase = getSupabase();
       const campusId = campus.data!.id;
 
-      const [buildings, unpublished, pendingCorrections] = await Promise.all([
-        exactCount(
-          supabase
-            .from("buildings")
-            .select("id", { count: "exact", head: true })
-            .eq("campus_id", campusId)
-            .is("deleted_at", null) as unknown as PromiseLike<CountResult>
-        ),
-        exactCount(
-          supabase
-            .from("buildings")
-            .select("id", { count: "exact", head: true })
-            .eq("campus_id", campusId)
-            .not("deleted_at", "is", null) as unknown as PromiseLike<CountResult>
-        ),
-        exactCount(
-          supabase
-            .from("corrections")
-            .select("id", { count: "exact", head: true })
-            .eq("status", "pending") as unknown as PromiseLike<CountResult>
-        ),
-      ]);
+      const [buildings, unpublished, pendingCorrections, entranceResult] =
+        await Promise.all([
+          exactCount(
+            supabase
+              .from("buildings")
+              .select("id", { count: "exact", head: true })
+              .eq("campus_id", campusId)
+              .is("deleted_at", null) as unknown as PromiseLike<CountResult>
+          ),
+          exactCount(
+            supabase
+              .from("buildings")
+              .select("id", { count: "exact", head: true })
+              .eq("campus_id", campusId)
+              .not("deleted_at", "is", null) as unknown as PromiseLike<CountResult>
+          ),
+          exactCount(
+            supabase
+              .from("corrections")
+              .select("id", { count: "exact", head: true })
+              .eq("status", "pending") as unknown as PromiseLike<CountResult>
+          ),
+          // Entrances have no campus column of their own; the inner join both
+          // scopes them to this campus and — because it's an inner join —
+          // drops doors that belong to unpublished buildings. Rows, not a head
+          // count, because the card also needs the kind and step-free split.
+          (async () => {
+            const result = (await supabase
+              .from("entrances")
+              .select("kind, step_free,buildings!inner(campus_id,deleted_at)")
+              .eq("buildings.campus_id", campusId)
+              .is("buildings.deleted_at", null)) as QueryResult<
+              Record<string, unknown>[]
+            >;
+            return unwrap(result);
+          })(),
+        ]);
 
-      return { buildings, unpublished, pendingCorrections };
+      const entrances = entranceResult;
+      return {
+        buildings,
+        unpublished,
+        pendingCorrections,
+        entrances: entrances.length,
+        exits: entrances.filter((row) => row.kind === "exit").length,
+        stepFreeEntrances: entrances.filter((row) => row.step_free === true)
+          .length,
+      };
     },
   });
 }
@@ -240,6 +274,190 @@ export function useSetBuildingPublished() {
       if (error) throw describeWriteError(error);
     },
     onSuccess: () => invalidateBuildingQueries(queryClient),
+  });
+}
+
+// ─── Entrances ───────────────────────────────────────────────────────────────
+
+/**
+ * One surveyed door, as read back from PostgREST.
+ *
+ * `gateClosesAt` stays a plain `"20:00"`-style string: the `time` column is
+ * text on the wire, and every consumer (the router's gate check, the editor's
+ * input) wants it in that shape, not as a Date.
+ */
+export interface AdminEntrance {
+  id: string;
+  buildingId: string;
+  name: string;
+  kind: EntranceKind;
+  lat: number;
+  lng: number;
+  hasRamp: boolean;
+  hasSteps: boolean;
+  stepFree: boolean;
+  gated: boolean;
+  gateClosesAt: string | null;
+}
+
+/** What the editor submits; `buildingId` rides along separately. */
+export interface EntranceInput {
+  name: string;
+  kind: EntranceKind;
+  lat: number;
+  lng: number;
+  hasRamp: boolean;
+  hasSteps: boolean;
+  stepFree: boolean;
+  gated: boolean;
+  gateClosesAt: string | null;
+}
+
+const ENTRANCE_COLUMNS =
+  "id, building_id, name, kind, lat, lng, has_ramp, has_steps, step_free, gated, gate_closes_at";
+
+function toEntrance(row: Record<string, unknown>): AdminEntrance {
+  return {
+    id: row.id as string,
+    buildingId: row.building_id as string,
+    name: row.name as string,
+    kind: (row.kind as EntranceKind) ?? "entrance",
+    lat: Number(row.lat),
+    lng: Number(row.lng),
+    hasRamp: row.has_ramp === true,
+    hasSteps: row.has_steps === true,
+    stepFree: row.step_free === true,
+    gated: row.gated === true,
+    gateClosesAt: (row.gate_closes_at as string | null) ?? null,
+  };
+}
+
+function toEntranceRow(values: EntranceInput) {
+  return {
+    name: values.name,
+    kind: values.kind,
+    lat: values.lat,
+    lng: values.lng,
+    has_ramp: values.hasRamp,
+    has_steps: values.hasSteps,
+    step_free: values.stepFree,
+    gated: values.gated,
+    gate_closes_at: values.gated ? values.gateClosesAt : null,
+  };
+}
+
+/**
+ * Shared validation for create and update — the DB CHECK and NOT NULLs would
+ * catch all of this eventually, but a round trip to be told "invalid input" is
+ * a worse error than a sentence that says which field is wrong.
+ */
+function parseEntranceInput(values: EntranceInput): void {
+  if (!values.name.trim()) throw new Error("Give the entrance a name.");
+  if (!entranceKinds.includes(values.kind)) {
+    throw new Error("Pick an entrance kind.");
+  }
+  if (!Number.isFinite(values.lat) || Math.abs(values.lat) > 90) {
+    throw new Error("Latitude must be a number between -90 and 90.");
+  }
+  if (!Number.isFinite(values.lng) || Math.abs(values.lng) > 180) {
+    throw new Error("Longitude must be a number between -180 and 180.");
+  }
+  if (
+    values.gated &&
+    values.gateClosesAt &&
+    !/^([01]?\d|2[0-3]):[0-5]\d$/.test(values.gateClosesAt)
+  ) {
+    throw new Error("Gate closing time must look like 20:00.");
+  }
+}
+
+/** Postgres 23505 — the (building_id, name) unique index. */
+function describeEntranceError(error: { code?: string; message: string }): Error {
+  if (error.code === "23505") {
+    return new Error(
+      "An entrance with that name already exists for this building."
+    );
+  }
+  return describeWriteError(error);
+}
+
+/** Everything an entrance write makes stale. */
+function invalidateEntranceQueries(
+  queryClient: ReturnType<typeof useQueryClient>
+) {
+  void queryClient.invalidateQueries({ queryKey: [ADMIN_ENTRANCES_KEY] });
+  void queryClient.invalidateQueries({ queryKey: [ADMIN_STATS_KEY] });
+}
+
+/** Doors on one building, in list order. Read by the building edit screen. */
+export function useEntrances(buildingId: string | undefined) {
+  return useQuery({
+    queryKey: [ADMIN_ENTRANCES_KEY, buildingId],
+    enabled: isSupabaseConfigured && !!buildingId,
+    staleTime: 30_000,
+    queryFn: async (): Promise<AdminEntrance[]> => {
+      const result = (await getSupabase()
+        .from("entrances")
+        .select(ENTRANCE_COLUMNS)
+        .eq("building_id", buildingId!)
+        .order("name")) as QueryResult<Record<string, unknown>[]>;
+      return unwrap(result).map(toEntrance);
+    },
+  });
+}
+
+export function useCreateEntrance() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      buildingId,
+      values,
+    }: {
+      buildingId: string;
+      values: EntranceInput;
+    }) => {
+      parseEntranceInput(values);
+      const { error } = await getSupabase()
+        .from("entrances")
+        .insert({ ...toEntranceRow(values), building_id: buildingId });
+      if (error) throw describeEntranceError(error);
+    },
+    onSuccess: () => invalidateEntranceQueries(queryClient),
+  });
+}
+
+export function useUpdateEntrance() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      id,
+      values,
+    }: {
+      id: string;
+      values: EntranceInput;
+    }) => {
+      parseEntranceInput(values);
+      const { error } = await getSupabase()
+        .from("entrances")
+        .update(toEntranceRow(values))
+        .eq("id", id);
+      if (error) throw describeEntranceError(error);
+    },
+    onSuccess: () => invalidateEntranceQueries(queryClient),
+  });
+}
+
+export function useDeleteEntrance() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await getSupabase().from("entrances").delete().eq("id", id);
+      if (error) throw describeEntranceError(error);
+    },
+    onSuccess: () => invalidateEntranceQueries(queryClient),
   });
 }
 

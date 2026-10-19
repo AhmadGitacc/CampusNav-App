@@ -6,6 +6,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider } from "@/components/AuthProvider";
+import { OfflineToast } from "@/components/OfflineToast";
 import {
   ThemeProvider,
   loadStoredMode,
@@ -28,15 +29,20 @@ SplashScreen.preventAutoHideAsync();
 
 function RootLayoutNav() {
   return (
-    <Stack screenOptions={{ headerShown: false, headerBackTitle: "Back" }}>
-      <Stack.Screen name="index" />
-      <Stack.Screen name="map" />
-      <Stack.Screen name="favorites" />
-      <Stack.Screen name="(auth)" />
-      {/* Admin CMS. The role gate lives in app/admin/_layout.tsx — this entry
-          only puts the tree in the navigator so typed routes include it. */}
-      <Stack.Screen name="admin" />
-    </Stack>
+    <>
+      <Stack screenOptions={{ headerShown: false, headerBackTitle: "Back" }}>
+        <Stack.Screen name="index" />
+        <Stack.Screen name="map" />
+        <Stack.Screen name="favorites" />
+        <Stack.Screen name="(auth)" />
+        {/* Admin CMS. The role gate lives in app/admin/_layout.tsx — this entry
+            only puts the tree in the navigator so typed routes include it. */}
+        <Stack.Screen name="admin" />
+      </Stack>
+      {/* One toast for every screen — user and admin alike. It renders above
+          the navigator, so it survives navigation while it fades. */}
+      <OfflineToast />
+    </>
   );
 }
 

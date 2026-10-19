@@ -1,7 +1,6 @@
 import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Platform,
   Pressable,
@@ -22,8 +21,9 @@ import {
   useSetBuildingPublished,
   type AdminBuilding,
 } from "@/lib/api/admin";
-import { useAdminCampus } from "@/components/AdminCampusProvider";
+import { useAdminCampus, CampusSwitcher } from "@/components/AdminCampusProvider";
 import { MarkerIcon } from "@/components/MarkerIcon";
+import { ConfirmSheet } from "@/components/ConfirmSheet";
 
 /**
  * Building list with publish / unpublish (Feature 10 §7.4).
@@ -55,6 +55,10 @@ export default function AdminBuildingsScreen() {
   const { data: buildings, isLoading, isError } = useAdminBuildings(campus?.slug);
   const setPublished = useSetBuildingPublished();
   const [query, setQuery] = useState("");
+  // The row waiting for unpublish confirmation, and the last write failure —
+  // inline rather than `Alert.alert`, which is a no-op on web.
+  const [confirmTarget, setConfirmTarget] = useState<AdminBuilding | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
 
@@ -78,38 +82,42 @@ export default function AdminBuildingsScreen() {
     );
   }, [buildings, query]);
 
-  const togglePublished = useCallback(
-    (building: AdminBuilding) => {
-      const publish = building.deletedAt !== null;
-      const run = async () => {
-        try {
-          await setPublished.mutateAsync({ id: building.id, published: publish });
-          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        } catch (error) {
-          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-          Alert.alert(
-            publish ? "Couldn't publish" : "Couldn't unpublish",
-            error instanceof Error ? error.message : "Please try again."
-          );
-        }
-      };
-
-      // Unpublishing removes a place from every student's map, so it is worth
-      // one confirmation. Publishing it back is not.
-      if (publish) {
-        void run();
-        return;
+  /**
+   * Applies the publish flip. Errors land in the inline banner below the
+   * header — `Alert.alert` would vanish on web, which is exactly how the
+   * unpublish button came to look broken.
+   */
+  const applyPublished = useCallback(
+    async (building: AdminBuilding, publish: boolean) => {
+      try {
+        await setPublished.mutateAsync({ id: building.id, published: publish });
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch (error) {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        setActionError(
+          `${publish ? "Couldn't publish" : "Couldn't unpublish"} ${
+            building.name
+          } — ${error instanceof Error ? error.message : "please try again."}`
+        );
+      } finally {
+        setConfirmTarget(null);
       }
-      Alert.alert(
-        `Unpublish ${building.name}?`,
-        "It disappears from the map and search for everyone, but nothing is deleted and you can restore it here.",
-        [
-          { text: "Cancel", style: "cancel" },
-          { text: "Unpublish", style: "destructive", onPress: () => void run() },
-        ]
-      );
     },
     [setPublished]
+  );
+
+  const togglePublished = useCallback(
+    (building: AdminBuilding) => {
+      setActionError(null);
+      // Unpublishing removes a place from every student's map, so it is worth
+      // one confirmation. Publishing it back is not.
+      if (building.deletedAt !== null) {
+        void applyPublished(building, true);
+        return;
+      }
+      setConfirmTarget(building);
+    },
+    [applyPublished]
   );
 
   const renderItem = useCallback(
@@ -182,7 +190,7 @@ export default function AdminBuildingsScreen() {
           <ArrowLeft size={22} color={theme.text} strokeWidth={2.5} />
         </Pressable>
         <Text style={styles.title} numberOfLines={1}>
-          {campus?.name ?? "Buildings"}
+          Buildings
         </Text>
         <Pressable
           onPress={() => {
@@ -195,6 +203,18 @@ export default function AdminBuildingsScreen() {
           <Plus size={22} color={theme.onTint} strokeWidth={2.5} />
         </Pressable>
       </View>
+
+      <CampusSwitcher />
+
+      {actionError ? (
+        <Pressable
+          onPress={() => setActionError(null)}
+          style={styles.errorBanner}
+          accessibilityRole="alert"
+        >
+          <Text style={styles.errorBannerText}>{actionError}</Text>
+        </Pressable>
+      ) : null}
 
       <View style={styles.searchWrap}>
         <Search size={16} color={theme.gray} strokeWidth={2.2} />
@@ -242,6 +262,19 @@ export default function AdminBuildingsScreen() {
           }
         />
       )}
+
+      <ConfirmSheet
+        visible={confirmTarget !== null}
+        title={`Unpublish ${confirmTarget?.name ?? ""}?`}
+        message="It disappears from the map and search for everyone, but nothing is deleted and you can restore it here."
+        confirmLabel="Unpublish"
+        tone="destructive"
+        busy={setPublished.isPending}
+        onConfirm={() => {
+          if (confirmTarget) void applyPublished(confirmTarget, false);
+        }}
+        onClose={() => setConfirmTarget(null)}
+      />
     </View>
   );
 }
@@ -301,6 +334,22 @@ const makeStyles = (theme: Theme) => StyleSheet.create({
     fontSize: 15,
     fontFamily: "Inter_400Regular",
     color: theme.text,
+  },
+  errorBanner: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    backgroundColor: theme.tintLight,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.danger,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  errorBannerText: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    color: theme.danger,
+    lineHeight: 18,
   },
   list: {
     marginHorizontal: 16,

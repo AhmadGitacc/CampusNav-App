@@ -17,7 +17,7 @@ import * as Haptics from "expo-haptics";
 import { useTheme } from "@/components/ThemeProvider";
 import type { Theme } from "@/constants/colors";
 import { useImportBuildings } from "@/lib/api/admin";
-import { useAdminCampus } from "@/components/AdminCampusProvider";
+import { useAdminCampus, CampusSwitcher } from "@/components/AdminCampusProvider";
 import { parseBuildingsCsv, type ImportIssue } from "@/lib/import/csv";
 import { parseBuildingsGeoJson } from "@/lib/import/geojson";
 import type { ImportBuilding } from "@shared/schema";
@@ -131,10 +131,7 @@ export default function AdminImportScreen() {
         <View style={styles.headerSpacer} />
       </View>
 
-      <View style={styles.target}>
-        <Text style={styles.targetLabel}>Target campus</Text>
-        <Text style={styles.targetValue}>{campus?.name ?? "No campus selected"}</Text>
-      </View>
+      <CampusSwitcher />
 
       <View style={styles.tabs}>
         {(["csv", "geojson"] as const).map((option) => {

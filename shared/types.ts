@@ -8,12 +8,69 @@ export interface LatLngPair {
   lng: number;
 }
 
+/**
+ * Marker glyph keys. Kept in lockstep with `markerIconNames` in shared/schema.ts
+ * (the enum the form validates against) and `lib/icon-registry.ts` (labels,
+ * keywords and the lucide component). The five original names stay first so
+ * rows written before the library grew keep resolving.
+ */
 export type MarkerIconName =
+  // Original five
   | "building"
   | "book"
   | "library"
   | "flag"
-  | "map-pin";
+  | "map-pin"
+  // Academic
+  | "graduation-cap"
+  | "pencil"
+  | "flask"
+  | "laptop"
+  | "palette"
+  | "microscope"
+  | "ruler"
+  // Facilities
+  | "warehouse"
+  | "bed"
+  | "store"
+  | "coffee"
+  | "utensils"
+  | "door"
+  | "accessibility"
+  // Services
+  | "landmark"
+  | "stethoscope"
+  | "shield"
+  | "banknote"
+  | "wrench"
+  | "mail"
+  | "package"
+  | "briefcase"
+  // Sports & recreation
+  | "dumbbell"
+  | "trophy"
+  | "volleyball"
+  | "bike"
+  | "waves"
+  | "gamepad"
+  | "music"
+  // Outdoors & transport
+  | "trees"
+  | "parking"
+  | "bus"
+  | "car"
+  | "footprints"
+  | "tent"
+  // Health & safety
+  | "heart"
+  | "cross"
+  | "life-buoy"
+  | "flame"
+  | "siren"
+  // General
+  | "star"
+  | "clock"
+  | "users";
 
 export interface CampusMarker {
   id: string;

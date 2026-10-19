@@ -195,6 +195,21 @@ export type FavoriteRow = typeof favorites.$inferSelect;
 
 // ─── Entrances ───────────────────────────────────────────────────────────
 
+/**
+ * What kind of door a row is. `entrance` is the default so survey-era rows and
+ * quick adds don't have to choose; `exit` marks doors meant for leaving, `gate`
+ * a controlled opening (paired with `gateClosesAt`).
+ */
+export const entranceKinds = ["entrance", "exit", "gate"] as const;
+export type EntranceKind = (typeof entranceKinds)[number];
+
+/** Human labels for `kind`, mirrored as a CHECK constraint in migration 0007. */
+export const entranceKindLabels: Record<EntranceKind, string> = {
+  entrance: "Entrance",
+  exit: "Exit",
+  gate: "Gate",
+};
+
 export const entrances = pgTable(
   "entrances",
   {
@@ -206,6 +221,8 @@ export const entrances = pgTable(
       .references(() => buildings.id, { onDelete: "cascade" }),
     /** "Main ramp entrance" — shown in the final navigation step. */
     name: text("name").notNull().default("Main entrance"),
+    /** Entrance, exit or gate. Migration 0007; older rows read as entrance. */
+    kind: varchar("kind", { enum: entranceKinds }).notNull().default("entrance"),
     lat: doublePrecision("lat").notNull(),
     lng: doublePrecision("lng").notNull(),
     hasRamp: boolean("has_ramp").notNull().default(false),
@@ -323,6 +340,23 @@ export type RouteOptions = z.infer<typeof routeOptionsSchema>;
 export const correctionStatuses = ["pending", "approved", "rejected"] as const;
 
 /**
+ * Why a report was filed, in the reporter's own words from a fixed list.
+ *
+ * A reason is cosmetic metadata for the moderation queue — it never replaces
+ * `field`, which is what approval actually writes. `other` is the one reason
+ * that carries no field: a "something is wrong but I can't say what to change"
+ * note, which is why `corrections.field` is nullable.
+ */
+export const correctionReasons = [
+  "wrong_location",
+  "wrong_name",
+  "wrong_description",
+  "wrong_category",
+  "wrong_hours",
+  "other",
+] as const;
+
+/**
  * The `buildings` columns a member of the public is allowed to propose a change
  * to. A correction can only ever touch one of these, so approving a row can
  * never write to an arbitrary column.
@@ -338,6 +372,7 @@ export const correctionFields = [
 ] as const;
 
 export type CorrectionField = (typeof correctionFields)[number];
+export type CorrectionReason = (typeof correctionReasons)[number];
 export type CorrectionStatus = (typeof correctionStatuses)[number];
 
 /**
@@ -357,7 +392,13 @@ export const corrections = pgTable(
       onDelete: "cascade",
     }),
     userId: uuid("user_id").references(() => profiles.id),
-    field: varchar("field", { enum: correctionFields }).notNull(),
+    /**
+     * Nullable: an `other` report names a reason and a note but no column to
+     * write, so there is no field for it to carry. Migration 0006.
+     */
+    field: varchar("field", { enum: correctionFields }),
+    /** Why the report was filed. Migration 0006; null on rows predating it. */
+    reason: varchar("reason", { enum: correctionReasons }),
     newValue: text("new_value").notNull(),
     note: text("note"),
     status: varchar("status", { enum: correctionStatuses })
@@ -376,18 +417,70 @@ export const corrections = pgTable(
   ],
 );
 
-export const insertCorrectionSchema = z.object({
-  buildingId: z.string().min(1, "Pick a building").max(64),
-  field: z.enum(correctionFields, {
-    errorMap: () => ({ message: "Pick a field to correct" }),
-  }),
-  newValue: z
-    .string()
-    .trim()
-    .min(1, "Enter the corrected value")
-    .max(500),
-  note: z.string().trim().max(500).optional(),
-});
+export const insertCorrectionSchema = z
+  .object({
+    buildingId: z.string().min(1, "Pick a building").max(64),
+    reason: z.enum(correctionReasons, {
+      errorMap: () => ({ message: "Pick what's wrong" }),
+    }),
+    /**
+     * What the values should be. One entry for a single-field report, two for
+     * a location report (latitude *and* longitude — a pin is not half a
+     * coordinate), none for `other` (a note with nothing to write) or for a
+     * wrong-location report where the reporter can't point to the right spot
+     * yet — flagging the building is still worth something to a moderator.
+     */
+    proposals: z
+      .array(
+        z.object({
+          field: z.enum(correctionFields),
+          newValue: z.string().trim().min(1, "Enter the corrected value").max(500),
+        })
+      )
+      .max(2)
+      .default([]),
+    note: z.string().trim().max(500).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.reason === "other") {
+      if (value.proposals.length > 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["proposals"],
+          message: "An “other” report proposes no replacement value",
+        });
+      }
+      if (!value.note) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["note"],
+          message: "Tell us what's wrong",
+        });
+      }
+      return;
+    }
+    if (value.reason === "wrong_location") {
+      // The reporter may know the pin is wrong without knowing where it
+      // belongs — zero proposals is a valid flag-only report. Half a pair is
+      // not: a latitude without its longitude would move the building to the
+      // equator's neighbourhood.
+      if (value.proposals.length === 1) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["proposals"],
+          message: "A location needs both latitude and longitude",
+        });
+      }
+      return;
+    }
+    if (value.proposals.length !== 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["proposals"],
+        message: "Enter the corrected value",
+      });
+    }
+  });
 
 export type InsertCorrection = z.infer<typeof insertCorrectionSchema>;
 export type CorrectionRow = typeof corrections.$inferSelect;
@@ -426,11 +519,62 @@ export type AuditLogRow = typeof auditLog.$inferSelect;
 
 /** Marker icon keys, mirroring the `MarkerIconName` union in shared/types.ts. */
 export const markerIconNames = [
+  // Original five — first so existing rows keep resolving.
   "building",
   "book",
   "library",
   "flag",
   "map-pin",
+  // Academic
+  "graduation-cap",
+  "pencil",
+  "flask",
+  "laptop",
+  "palette",
+  "microscope",
+  "ruler",
+  // Facilities
+  "warehouse",
+  "bed",
+  "store",
+  "coffee",
+  "utensils",
+  "door",
+  "accessibility",
+  // Services
+  "landmark",
+  "stethoscope",
+  "shield",
+  "banknote",
+  "wrench",
+  "mail",
+  "package",
+  "briefcase",
+  // Sports & recreation
+  "dumbbell",
+  "trophy",
+  "volleyball",
+  "bike",
+  "waves",
+  "gamepad",
+  "music",
+  // Outdoors & transport
+  "trees",
+  "parking",
+  "bus",
+  "car",
+  "footprints",
+  "tent",
+  // Health & safety
+  "heart",
+  "cross",
+  "life-buoy",
+  "flame",
+  "siren",
+  // General
+  "star",
+  "clock",
+  "users",
 ] as const;
 
 /**

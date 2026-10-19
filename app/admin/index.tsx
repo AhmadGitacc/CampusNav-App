@@ -13,6 +13,7 @@ import { router } from "expo-router";
 import {
   ArrowLeft,
   Building2,
+  ChevronRight,
   FileUp,
   History,
   MessageSquareWarning,
@@ -20,16 +21,34 @@ import {
 import * as Haptics from "expo-haptics";
 import { useTheme } from "@/components/ThemeProvider";
 import type { Theme } from "@/constants/colors";
-import { useAdminAudit, useAdminStats } from "@/lib/api/admin";
-import { CampusPicker, useAdminCampus } from "@/components/AdminCampusProvider";
+import { useAdminAudit, useAdminBuildings, useAdminStats } from "@/lib/api/admin";
+import { CampusSwitcher, useAdminCampus } from "@/components/AdminCampusProvider";
+import { buildingCategories } from "@shared/schema";
+import type { BuildingCategory } from "@shared/types";
 
 /**
  * Admin dashboard (Feature 10 §7.4).
  *
- * Four things and nothing else: the numbers that say whether the campus is in
- * good shape, the three places work actually happens, and the audit trail so a
- * second admin can see who changed what without asking.
+ * Shaped as: the numbers that say whether the campus is in good shape (2×2
+ * stat grid with progress bars, the totals card solid so the grid has an
+ * anchor), what the campus is made of (category distribution), the three
+ * places work actually happens, and the audit trail so a second admin can see
+ * who changed what without asking. Every figure comes from a real query —
+ * there are no decorative charts here.
  */
+
+const CATEGORY_LABELS: Record<BuildingCategory, string> = {
+  admin: "Admin",
+  faculty: "Faculty",
+  library: "Library",
+  event: "Events",
+  hostel: "Hostel",
+  cafeteria: "Cafeteria",
+  sports: "Sports",
+  health: "Health",
+  parking: "Parking",
+  toilet: "Toilet",
+};
 
 export default function AdminDashboardScreen() {
   const insets = useSafeAreaInsets();
@@ -37,6 +56,7 @@ export default function AdminDashboardScreen() {
   const styles = useMemo(() => makeStyles(theme), [theme]);
   const { campus } = useAdminCampus();
   const stats = useAdminStats(campus?.slug);
+  const buildings = useAdminBuildings(campus?.slug);
   const audit = useAdminAudit(8);
 
   const goBack = useCallback(() => {
@@ -47,6 +67,29 @@ export default function AdminDashboardScreen() {
       router.replace("/");
     }
   }, []);
+
+  const total = (stats.data?.buildings ?? 0) + (stats.data?.unpublished ?? 0);
+  const published = stats.data?.buildings ?? 0;
+  const unpublished = stats.data?.unpublished ?? 0;
+  const pending = stats.data?.pendingCorrections ?? 0;
+  const entrances = stats.data?.entrances ?? 0;
+  const exits = stats.data?.exits ?? 0;
+  const stepFreeEntrances = stats.data?.stepFreeEntrances ?? 0;
+  const ratio = (value: number) => (total > 0 ? Math.min(value / total, 1) : 0);
+
+  const categoryCounts = useMemo(() => {
+    const counts = new Map<BuildingCategory, number>();
+    for (const building of buildings.data ?? []) {
+      if (building.deletedAt !== null) continue;
+      counts.set(building.category, (counts.get(building.category) ?? 0) + 1);
+    }
+    return buildingCategories
+      .map((category) => ({ category, count: counts.get(category) ?? 0 }))
+      .filter((row) => row.count > 0)
+      .sort((a, b) => b.count - a.count);
+  }, [buildings.data]);
+
+  const categoryMax = categoryCounts[0]?.count ?? 1;
 
   return (
     <View style={styles.container}>
@@ -59,11 +102,11 @@ export default function AdminDashboardScreen() {
         >
           <ArrowLeft size={22} color={theme.text} strokeWidth={2.5} />
         </Pressable>
-        <Text style={styles.title}>Content</Text>
+        <Text style={styles.title}>Dashboard</Text>
         <View style={styles.headerSpacer} />
       </View>
 
-      <CampusPicker />
+      <CampusSwitcher />
 
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
@@ -77,33 +120,87 @@ export default function AdminDashboardScreen() {
             </Text>
           </View>
         ) : (
-          <View style={styles.tiles}>
-            <Tile
-              label="Published"
-              value={stats.data?.buildings}
+          <View style={styles.grid}>
+            <StatCard
+              label="Buildings"
+              value={total}
+              caption="Total places on this campus"
+              progress={ratio(published)}
+              loading={stats.isLoading}
+              solid
+              styles={styles}
+            />
+            <StatCard
+              label="Entrances & exits"
+              value={entrances}
+              caption={
+                entrances > 0
+                  ? `${exits} exit${exits === 1 ? "" : "s"} · ${stepFreeEntrances} step-free`
+                  : "None surveyed yet"
+              }
+              // The bar is the accessible share of surveyed doors — the number
+              // a router can actually promise step-free routes to.
+              progress={entrances > 0 ? stepFreeEntrances / entrances : 0}
               loading={stats.isLoading}
               styles={styles}
             />
-            <Tile
+            <StatCard
               label="Unpublished"
-              value={stats.data?.unpublished}
+              value={unpublished}
+              caption="Hidden from students"
+              progress={ratio(unpublished)}
               loading={stats.isLoading}
               styles={styles}
             />
-            <Tile
+            <StatCard
               label="Reports to review"
-              value={stats.data?.pendingCorrections}
+              value={pending}
+              caption={pending > 0 ? "Waiting on you" : "Queue is clear"}
+              progress={total > 0 ? Math.min(pending / Math.max(total, 1), 1) : 0}
               loading={stats.isLoading}
-              highlight={(stats.data?.pendingCorrections ?? 0) > 0}
+              highlight={pending > 0}
               styles={styles}
             />
           </View>
         )}
 
+        {categoryCounts.length > 0 ? (
+          <>
+            <Text style={styles.sectionTitle}>Campus makeup</Text>
+            <View style={styles.sectionCard}>
+              {categoryCounts.map((row, index) => (
+                <View
+                  key={row.category}
+                  style={[
+                    styles.makeupRow,
+                    index === categoryCounts.length - 1 && styles.makeupRowLast,
+                  ]}
+                >
+                  <Text style={styles.makeupLabel}>
+                    {CATEGORY_LABELS[row.category]}
+                  </Text>
+                  <View style={styles.makeupTrack}>
+                    <View
+                      style={[
+                        styles.makeupFill,
+                        { width: `${Math.max((row.count / categoryMax) * 100, 6)}%` },
+                      ]}
+                    />
+                  </View>
+                  <Text style={styles.makeupCount}>{row.count}</Text>
+                </View>
+              ))}
+            </View>
+          </>
+        ) : null}
+
+        <Text style={styles.sectionTitle}>Manage</Text>
         <ActionRow
           icon={<Building2 size={20} color={theme.tint} strokeWidth={2.2} />}
           title="Buildings"
           caption="Add, edit, publish and unpublish"
+          badge={total > 0 ? String(total) : null}
+          chevronColor={theme.gray}
           onPress={() => {
             void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             router.push("/admin/buildings");
@@ -112,14 +209,13 @@ export default function AdminDashboardScreen() {
         />
         <ActionRow
           icon={
-            <MessageSquareWarning
-              size={20}
-              color={theme.tint}
-              strokeWidth={2.2}
-            />
+            <MessageSquareWarning size={20} color={theme.tint} strokeWidth={2.2} />
           }
           title="Corrections"
-          caption="Approve or reject what people reported"
+          caption="Review what people reported"
+          badge={pending > 0 ? String(pending) : null}
+          badgeAttention={pending > 0}
+          chevronColor={theme.gray}
           onPress={() => {
             void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             router.push("/admin/corrections");
@@ -130,6 +226,7 @@ export default function AdminDashboardScreen() {
           icon={<FileUp size={20} color={theme.tint} strokeWidth={2.2} />}
           title="Import"
           caption="Bulk add from CSV or GeoJSON"
+          chevronColor={theme.gray}
           onPress={() => {
             void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             router.push("/admin/import");
@@ -149,15 +246,32 @@ export default function AdminDashboardScreen() {
         ) : (audit.data ?? []).length === 0 ? (
           <Text style={styles.emptyAudit}>No changes recorded yet.</Text>
         ) : (
-          (audit.data ?? []).map((entry) => (
-            <View key={entry.id} style={styles.auditRow}>
-              <Text style={styles.auditAction}>{entry.action}</Text>
-              <Text style={styles.auditMeta}>
-                {entry.actorId ? entry.actorId.slice(0, 8) : "system"} ·{" "}
-                {formatWhen(entry.createdAt)}
-              </Text>
-            </View>
-          ))
+          <View style={styles.auditCard}>
+            {(audit.data ?? []).map((entry, index, all) => (
+              <View
+                key={entry.id}
+                style={[
+                  styles.auditRow,
+                  index === all.length - 1 && styles.auditRowLast,
+                ]}
+              >
+                <View style={styles.auditAvatar}>
+                  <Text style={styles.auditAvatarText}>
+                    {initialsFor(entry.actorId, entry.action)}
+                  </Text>
+                </View>
+                <View style={styles.auditText}>
+                  <Text style={styles.auditAction} numberOfLines={1}>
+                    {describeAction(entry.action, entry.entity)}
+                  </Text>
+                  <Text style={styles.auditMeta}>
+                    {entry.actorId ? `admin · ${entry.actorId.slice(0, 8)}` : "system"} ·{" "}
+                    {formatWhen(entry.createdAt)}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </View>
         )}
       </ScrollView>
     </View>
@@ -167,6 +281,9 @@ export default function AdminDashboardScreen() {
 function formatWhen(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "just now";
+  const minutes = Math.floor((Date.now() - date.getTime()) / 60_000);
+  if (minutes >= 1 && minutes < 60) return `${minutes} min ago`;
+  if (minutes < 1) return "just now";
   return date.toLocaleString(undefined, {
     month: "short",
     day: "numeric",
@@ -175,28 +292,66 @@ function formatWhen(iso: string): string {
   });
 }
 
-function Tile({
+/** "buildings.insert" → "Building added"; unknown verbs degrade to the raw row. */
+function describeAction(action: string, entity: string): string {
+  const verb = action.includes("delete")
+    ? "removed"
+    : action.includes("update")
+      ? "edited"
+      : "added";
+  const label = entity === "buildings" ? "Building" : entity;
+  return `${label} ${verb}`;
+}
+
+/** Actor initials for the avatar; system entries get a dot-and-glyph stand-in. */
+function initialsFor(actorId: string | null, action: string): string {
+  if (!actorId) return action.includes("delete") ? "–" : "·";
+  return actorId.slice(0, 2).toUpperCase();
+}
+
+function StatCard({
   label,
   value,
+  caption,
+  progress,
   loading,
   highlight,
+  solid,
   styles,
 }: {
   label: string;
-  value: number | undefined;
+  value: number;
+  caption: string;
+  progress: number;
   loading: boolean;
   highlight?: boolean;
-  // The parent already built these for the active theme; rebuilding them here
-  // would mean a third StyleSheet per tile, and a tile that lagged a theme
-  // switch by a render.
+  solid?: boolean;
   styles: DashboardStyles;
 }) {
   return (
-    <View style={[styles.tile, highlight && styles.tileHighlight]}>
-      <Text style={[styles.tileValue, highlight && styles.tileValueHighlight]}>
-        {loading ? "—" : (value ?? 0)}
+    <View
+      style={[
+        styles.statCard,
+        solid && styles.statCardSolid,
+        highlight && !solid && styles.statCardHighlight,
+      ]}
+    >
+      <Text style={[styles.statValue, solid && styles.statValueSolid]}>
+        {loading ? "—" : value}
       </Text>
-      <Text style={styles.tileLabel}>{label}</Text>
+      <Text style={[styles.statLabel, solid && styles.statLabelSolid]}>{label}</Text>
+      <View style={[styles.statTrack, solid && styles.statTrackSolid]}>
+        <View
+          style={[
+            styles.statFill,
+            solid && styles.statFillSolid,
+            { width: `${Math.round((loading ? 0 : progress) * 100)}%` },
+          ]}
+        />
+      </View>
+      <Text style={[styles.statCaption, solid && styles.statCaptionSolid]}>
+        {loading ? "Loading…" : caption}
+      </Text>
     </View>
   );
 }
@@ -205,13 +360,19 @@ function ActionRow({
   icon,
   title,
   caption,
+  badge,
+  badgeAttention,
   onPress,
+  chevronColor,
   styles,
 }: {
   icon: React.ReactNode;
   title: string;
   caption: string;
+  badge?: string | null;
+  badgeAttention?: boolean;
   onPress: () => void;
+  chevronColor: string;
   styles: DashboardStyles;
 }) {
   return (
@@ -225,6 +386,21 @@ function ActionRow({
         <Text style={styles.actionTitle}>{title}</Text>
         <Text style={styles.actionCaption}>{caption}</Text>
       </View>
+      {badge ? (
+        <View
+          style={[styles.actionBadge, badgeAttention && styles.actionBadgeAttention]}
+        >
+          <Text
+            style={[
+              styles.actionBadgeText,
+              badgeAttention && styles.actionBadgeTextAttention,
+            ]}
+          >
+            {badge}
+          </Text>
+        </View>
+      ) : null}
+      <ChevronRight size={18} color={chevronColor} strokeWidth={2.4} />
     </Pressable>
   );
 }
@@ -274,35 +450,124 @@ const makeStyles = (theme: Theme) => StyleSheet.create({
     paddingHorizontal: 16,
     gap: 12,
   },
-  tiles: {
+  grid: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 12,
   },
-  tile: {
-    flex: 1,
+  statCard: {
+    flexGrow: 1,
+    flexBasis: "47%",
     backgroundColor: theme.card,
-    borderRadius: 18,
-    paddingVertical: 16,
-    paddingHorizontal: 12,
-    alignItems: "center",
-    gap: 2,
+    borderRadius: 20,
+    padding: 16,
+    gap: 3,
+    borderWidth: 1,
+    borderColor: theme.border,
   },
-  tileHighlight: {
+  statCardSolid: {
+    backgroundColor: theme.tint,
+    borderColor: theme.tint,
+  },
+  statCardHighlight: {
     backgroundColor: theme.tintLight,
+    borderColor: theme.tint,
   },
-  tileValue: {
-    fontSize: 26,
+  statValue: {
+    fontSize: 28,
     fontFamily: "Inter_700Bold",
     color: theme.text,
   },
-  tileValueHighlight: {
-    color: theme.tint,
+  statValueSolid: {
+    color: theme.onTint,
   },
-  tileLabel: {
+  statLabel: {
     fontSize: 12,
-    fontFamily: "Inter_500Medium",
+    fontFamily: "Inter_600SemiBold",
     color: theme.textSecondary,
-    textAlign: "center",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  statLabelSolid: {
+    color: "rgba(255, 255, 255, 0.75)",
+  },
+  statTrack: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: theme.backgroundSecondary,
+    marginTop: 6,
+    overflow: "hidden",
+  },
+  statTrackSolid: {
+    backgroundColor: "rgba(255, 255, 255, 0.25)",
+  },
+  statFill: {
+    height: "100%",
+    borderRadius: 3,
+    backgroundColor: theme.tint,
+  },
+  statFillSolid: {
+    backgroundColor: theme.onTint,
+  },
+  statCaption: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+    color: theme.gray,
+    marginTop: 2,
+  },
+  statCaptionSolid: {
+    color: "rgba(255, 255, 255, 0.7)",
+  },
+  sectionTitle: {
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+    color: theme.textSecondary,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginTop: 8,
+  },
+  sectionCard: {
+    backgroundColor: theme.card,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: theme.border,
+    paddingHorizontal: 14,
+  },
+  makeupRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.separator,
+  },
+  makeupRowLast: {
+    borderBottomWidth: 0,
+  },
+  makeupLabel: {
+    width: 76,
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    color: theme.text,
+  },
+  makeupTrack: {
+    flex: 1,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: theme.backgroundSecondary,
+    overflow: "hidden",
+  },
+  makeupFill: {
+    height: "100%",
+    borderRadius: 4,
+    backgroundColor: theme.tint,
+  },
+  makeupCount: {
+    width: 28,
+    textAlign: "right",
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+    color: theme.textSecondary,
   },
   action: {
     flexDirection: "row",
@@ -311,6 +576,8 @@ const makeStyles = (theme: Theme) => StyleSheet.create({
     backgroundColor: theme.card,
     borderRadius: 18,
     padding: 14,
+    borderWidth: 1,
+    borderColor: theme.border,
   },
   actionPressed: {
     backgroundColor: theme.surfacePressed,
@@ -337,6 +604,25 @@ const makeStyles = (theme: Theme) => StyleSheet.create({
     fontFamily: "Inter_400Regular",
     color: theme.gray,
   },
+  actionBadge: {
+    minWidth: 26,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: theme.backgroundSecondary,
+    alignItems: "center",
+  },
+  actionBadgeAttention: {
+    backgroundColor: theme.tint,
+  },
+  actionBadgeText: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+    color: theme.textSecondary,
+  },
+  actionBadgeTextAttention: {
+    color: theme.onTint,
+  },
   auditHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -350,11 +636,39 @@ const makeStyles = (theme: Theme) => StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.5,
   },
-  auditRow: {
+  auditCard: {
     backgroundColor: theme.card,
-    borderRadius: 12,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: theme.border,
     paddingHorizontal: 14,
-    paddingVertical: 10,
+  },
+  auditRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.separator,
+  },
+  auditRowLast: {
+    borderBottomWidth: 0,
+  },
+  auditAvatar: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    backgroundColor: theme.tintLight,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  auditAvatarText: {
+    fontSize: 12,
+    fontFamily: "Inter_700Bold",
+    color: theme.tint,
+  },
+  auditText: {
+    flex: 1,
     gap: 2,
   },
   auditAction: {

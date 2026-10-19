@@ -15,7 +15,7 @@ import * as Haptics from "expo-haptics";
 import { useTheme } from "@/components/ThemeProvider";
 import type { Theme } from "@/constants/colors";
 import { useCreateBuilding } from "@/lib/api/admin";
-import { useAdminCampus } from "@/components/AdminCampusProvider";
+import { useAdminCampus, CampusSwitcher } from "@/components/AdminCampusProvider";
 import { BuildingForm } from "@/components/BuildingForm";
 
 /** Add one building by hand (Feature 10 §7.4). */
@@ -72,6 +72,7 @@ export default function NewBuildingScreen() {
         <Text style={styles.title}>New building</Text>
         <View style={styles.headerSpacer} />
       </View>
+      <CampusSwitcher />
       <BuildingForm
         submitLabel="Add building"
         isSubmitting={create.isPending}

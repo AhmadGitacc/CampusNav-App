@@ -1,6 +1,6 @@
 import { buildingCategories } from "@shared/schema";
 import type { Building, BuildingCategory } from "@shared/types";
-import type { CorrectionField } from "@shared/schema";
+import type { CorrectionField, CorrectionReason } from "@shared/schema";
 
 /**
  * Turning a reported string into a column value (Feature 10 §7.6).
@@ -26,6 +26,29 @@ export const CORRECTION_FIELD_LABELS: Record<CorrectionField, string> = {
   opening_hours: "Opening hours",
   aliases: "Alternative names",
 };
+
+/** The fixed list of reasons the public report modal offers. */
+export const CORRECTION_REASON_LABELS: Record<CorrectionReason, string> = {
+  wrong_location: "Wrong location",
+  wrong_name: "Wrong name",
+  wrong_description: "Wrong description",
+  wrong_category: "Wrong category",
+  wrong_hours: "Wrong opening hours",
+  other: "Something else",
+};
+
+/**
+ * Which field each reason is about, when the reason names exactly one. A wrong
+ * location is deliberately absent: it spans latitude *and* longitude, so the
+ * modal asks for both rather than letting half a pin through.
+ */
+export const REASON_DEFAULT_FIELD: Partial<Record<CorrectionReason, CorrectionField>> =
+  {
+    wrong_name: "name",
+    wrong_description: "description",
+    wrong_category: "category",
+    wrong_hours: "opening_hours",
+  };
 
 /** The current value of a building field, for the modal's "Currently" line. */
 export function currentFieldValue(building: Building, field: CorrectionField): string {

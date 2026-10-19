@@ -1,7 +1,6 @@
-import React, { useCallback, useMemo } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Platform,
   Pressable,
   StatusBar,
@@ -22,6 +21,7 @@ import {
 } from "@/lib/api/admin";
 import { useAdminCampus } from "@/components/AdminCampusProvider";
 import { BuildingForm } from "@/components/BuildingForm";
+import { ConfirmSheet } from "@/components/ConfirmSheet";
 
 /**
  * Edit one building (Feature 10 §7.4).
@@ -41,6 +41,10 @@ export default function EditBuildingScreen() {
   const { data: buildings, isLoading, isError } = useAdminBuildings(campus?.slug);
   const update = useUpdateBuilding();
   const setPublished = useSetBuildingPublished();
+  // Confirmation state for unpublish, plus the last failure — shown inline
+  // because `Alert.alert` never renders on react-native-web.
+  const [confirmUnpublish, setConfirmUnpublish] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
 
@@ -66,43 +70,46 @@ export default function EditBuildingScreen() {
         goBack();
       } catch (error) {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        Alert.alert(
-          "Couldn't save",
-          error instanceof Error ? error.message : "Please try again."
+        setActionError(
+          `Couldn't save — ${
+            error instanceof Error ? error.message : "please try again."
+          }`
         );
       }
     },
     [goBack, id, update]
   );
 
-  const handleTogglePublished = useCallback(() => {
-    if (!building) return;
-    const publish = building.deletedAt !== null;
-    const run = async () => {
+  const applyPublished = useCallback(
+    async (publish: boolean) => {
+      if (!building) return;
       try {
         await setPublished.mutateAsync({ id: building.id, published: publish });
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } catch (error) {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        Alert.alert(
-          publish ? "Couldn't publish" : "Couldn't unpublish",
-          error instanceof Error ? error.message : "Please try again."
+        setActionError(
+          `${publish ? "Couldn't publish" : "Couldn't unpublish"} — ${
+            error instanceof Error ? error.message : "please try again."
+          }`
         );
+      } finally {
+        setConfirmUnpublish(false);
       }
-    };
-    if (publish) {
-      void run();
+    },
+    [building, setPublished]
+  );
+
+  const handleTogglePublished = useCallback(() => {
+    if (!building) return;
+    setActionError(null);
+    // Republishing is a one-tap undo; hiding the building needs a yes/no.
+    if (building.deletedAt !== null) {
+      void applyPublished(true);
       return;
     }
-    Alert.alert(
-      `Unpublish ${building.name}?`,
-      "It disappears from the map and search for everyone, but nothing is deleted and you can restore it.",
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Unpublish", style: "destructive", onPress: () => void run() },
-      ]
-    );
-  }, [building, setPublished]);
+    setConfirmUnpublish(true);
+  }, [building, applyPublished]);
 
   return (
     <View style={styles.container}>
@@ -120,6 +127,16 @@ export default function EditBuildingScreen() {
         </Text>
         <View style={styles.headerSpacer} />
       </View>
+
+      {actionError ? (
+        <Pressable
+          onPress={() => setActionError(null)}
+          style={styles.errorBanner}
+          accessibilityRole="alert"
+        >
+          <Text style={styles.errorBannerText}>{actionError}</Text>
+        </Pressable>
+      ) : null}
 
       {isLoading ? (
         <View style={styles.centered}>
@@ -166,6 +183,7 @@ export default function EditBuildingScreen() {
 
           <BuildingForm
             key={building.id}
+            buildingId={building.id}
             initialValues={{
               name: building.name,
               description: building.description,
@@ -183,6 +201,17 @@ export default function EditBuildingScreen() {
           />
         </>
       )}
+
+      <ConfirmSheet
+        visible={confirmUnpublish}
+        title={`Unpublish ${building?.name ?? ""}?`}
+        message="It disappears from the map and search for everyone, but nothing is deleted and you can restore it from this screen."
+        confirmLabel="Unpublish"
+        tone="destructive"
+        busy={setPublished.isPending}
+        onConfirm={() => void applyPublished(false)}
+        onClose={() => setConfirmUnpublish(false)}
+      />
     </View>
   );
 }
@@ -211,6 +240,22 @@ const makeStyles = (theme: Theme) => StyleSheet.create({
   },
   headerSpacer: { width: 44 },
   pressed: { opacity: 0.7, transform: [{ scale: 0.95 }] },
+  errorBanner: {
+    marginHorizontal: 16,
+    marginBottom: 6,
+    backgroundColor: theme.tintLight,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.danger,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  errorBannerText: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    color: theme.danger,
+    lineHeight: 18,
+  },
   title: {
     flex: 1,
     fontSize: 22,

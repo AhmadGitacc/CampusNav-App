@@ -8,13 +8,16 @@ import {
   View,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { Check } from "lucide-react-native";
+import { Crosshair, MapPin } from "lucide-react-native";
 import { useTheme } from "@/components/ThemeProvider";
 import { actionGradient } from "@/constants/gradients";
 import type { Theme } from "@/constants/colors";
-import { importBuildingSchema, markerIconNames, type ImportBuilding } from "@shared/schema";
+import { importBuildingSchema, type ImportBuilding } from "@shared/schema";
 import type { BuildingCategory, MarkerIconName } from "@shared/types";
-import { MarkerIcon } from "@/components/MarkerIcon";
+import { IconPicker } from "@/components/IconPicker";
+import { LocationPickerModal } from "@/components/LocationPickerModal";
+import { EntrancesSection } from "@/components/EntrancesSection";
+import { useAdminCampus } from "@/components/AdminCampusProvider";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 
 /**
@@ -69,6 +72,12 @@ export interface BuildingFormProps {
   submitLabel: string;
   isSubmitting: boolean;
   error?: string | null;
+  /**
+   * Present only on the edit screen. Unlocks the entrance section — a new
+   * building has no id to hang doors off yet, so doors are surveyed after the
+   * first save.
+   */
+  buildingId?: string;
   onSubmit: (values: ImportBuilding) => void;
 }
 
@@ -91,6 +100,7 @@ export function BuildingForm({
   submitLabel,
   isSubmitting,
   error,
+  buildingId,
   onSubmit,
 }: BuildingFormProps) {
   const [values, setValues] = useState<BuildingFormValues>(() => ({
@@ -116,8 +126,21 @@ export function BuildingForm({
     }),
   }));
   const [fieldError, setFieldError] = useState<string | null>(null);
+  const [locationPickerOpen, setLocationPickerOpen] = useState(false);
   const { theme, scheme } = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
+  const { campus } = useAdminCampus();
+
+  /**
+   * Camera seed for new doors: whatever the fields say right now, falling back
+   * to the saved coordinates while the lat/lng inputs are mid-edit or blank.
+   */
+  const entranceSeedCoords = useMemo(() => {
+    const lat = Number.parseFloat(values.lat);
+    const lng = Number.parseFloat(values.lng);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+    return { lat: initialValues?.lat ?? 0, lng: initialValues?.lng ?? 0 };
+  }, [values.lat, values.lng, initialValues?.lat, initialValues?.lng]);
 
   const set = <K extends keyof BuildingFormValues>(
     key: K,
@@ -208,7 +231,32 @@ export function BuildingForm({
           })}
         </View>
 
-        <Text style={styles.label}>Coordinates</Text>
+        <Text style={styles.label}>Location</Text>
+        <View style={styles.locationCard}>
+          <View style={styles.locationIcon}>
+            <MapPin size={20} color={theme.tint} strokeWidth={2.3} />
+          </View>
+          <View style={styles.locationText}>
+            <Text style={styles.locationValue} numberOfLines={1}>
+              {values.lat.trim() && values.lng.trim()
+                ? `${values.lat.trim()}, ${values.lng.trim()}`
+                : "No coordinates yet"}
+            </Text>
+            <Text style={styles.locationCaption}>
+              {values.lat.trim() && values.lng.trim()
+                ? "Tap to adjust on the map"
+                : "Drop a pin on the map to set the location"}
+            </Text>
+          </View>
+          <Pressable
+            onPress={() => setLocationPickerOpen(true)}
+            style={({ pressed }) => [styles.locationButton, pressed && styles.pressed]}
+            accessibilityRole="button"
+            accessibilityLabel="Pick the location on a map"
+          >
+            <Crosshair size={17} color={theme.tint} strokeWidth={2.4} />
+          </Pressable>
+        </View>
         <View style={styles.coordinateRow}>
           <View style={styles.coordinateField}>
             <Text style={styles.coordinateHint}>Latitude</Text>
@@ -238,33 +286,29 @@ export function BuildingForm({
           </View>
         </View>
 
+        <LocationPickerModal
+          visible={locationPickerOpen}
+          initial={
+            values.lat.trim() && values.lng.trim()
+              ? { lat: values.lat, lng: values.lng }
+              : null
+          }
+          campus={
+            campus ? { latitude: campus.lat, longitude: campus.lng } : null
+          }
+          onConfirm={(lat, lng) => {
+            set("lat", String(lat.toFixed(6)));
+            set("lng", String(lng.toFixed(6)));
+          }}
+          onClose={() => setLocationPickerOpen(false)}
+        />
+
         <Text style={styles.label}>Map icon</Text>
-        <View style={styles.chipRow}>
-          {markerIconNames.map((icon) => {
-            const selected = values.icon === icon;
-            return (
-              <Pressable
-                key={icon}
-                onPress={() => set("icon", selected ? undefined : icon)}
-                style={({ pressed }) => [
-                  styles.iconChip,
-                  selected && styles.iconChipSelected,
-                  pressed && styles.pressed,
-                ]}
-                accessibilityRole="radio"
-                accessibilityLabel={icon}
-                accessibilityState={{ selected }}
-              >
-                <MarkerIcon icon={icon} />
-                {selected ? (
-                  <View style={styles.iconCheck}>
-                    <Check size={10} color={theme.onTint} strokeWidth={3} />
-                  </View>
-                ) : null}
-              </Pressable>
-            );
-          })}
-        </View>
+        <IconPicker
+          value={values.icon}
+          onChange={(icon) => set("icon", icon)}
+          category={values.category}
+        />
 
         <Text style={styles.label}>Alternative names</Text>
         <TextInput
@@ -301,6 +345,13 @@ export function BuildingForm({
             accessibilityLabel="Step-free entrance"
           />
         </View>
+
+        {buildingId ? (
+          <EntrancesSection
+            buildingId={buildingId}
+            defaultCoords={entranceSeedCoords}
+          />
+        ) : null}
 
         {fieldError ? <Text style={styles.error}>{fieldError}</Text> : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -388,30 +439,42 @@ const makeStyles = (theme: Theme) => StyleSheet.create({
   chipTextSelected: {
     color: theme.onTint,
   },
-  iconChip: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
+  locationCard: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    gap: 12,
     backgroundColor: theme.card,
     borderWidth: 1,
     borderColor: theme.border,
+    borderRadius: 16,
+    padding: 12,
   },
-  iconChipSelected: {
+  locationIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
     backgroundColor: theme.tintLight,
-    borderColor: theme.tint,
-  },
-  iconCheck: {
-    position: "absolute",
-    right: -4,
-    bottom: -4,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: theme.tint,
     alignItems: "center",
     justifyContent: "center",
+  },
+  locationText: { flex: 1, gap: 2 },
+  locationValue: {
+    fontSize: 15,
+    fontFamily: "Inter_600SemiBold",
+    color: theme.text,
+  },
+  locationCaption: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    color: theme.gray,
+  },
+  locationButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.tintLight,
   },
   coordinateRow: {
     flexDirection: "row",

@@ -5,6 +5,7 @@ import { toBuilding } from "@/lib/api/campuses";
 import {
   insertCorrectionSchema,
   type CorrectionField,
+  type CorrectionReason,
   type CorrectionStatus,
   type InsertCorrection,
 } from "@shared/schema";
@@ -42,7 +43,14 @@ function unwrap<T>(result: QueryResult<T>): T {
 // ─── Public side ──────────────────────────────────────────────────────────────
 
 /**
- * Files a correction.
+ * Files a correction — one row per proposed field change.
+ *
+ * A location report is two rows (latitude and longitude): a pin is not half a
+ * coordinate, and a moderator approving one half without the other would move
+ * the building to the wrong side of the planet. An `other` report is a single
+ * row with no field and only a note — and so is a wrong-location report filed
+ * without a pin, for reporters who know the marker is wrong but not where it
+ * belongs.
  *
  * Guests submit with no `user_id`; the RLS policy allows it on purpose (see
  * migration 0005) so a typo can be reported without creating an account.
@@ -57,13 +65,23 @@ export function useSubmitCorrection() {
       if (!parsed.success) {
         throw new Error(parsed.error.issues[0]?.message ?? "Invalid correction");
       }
-      const { error } = await getSupabase().from("corrections").insert({
+      const base = {
         building_id: parsed.data.buildingId,
-        field: parsed.data.field,
-        new_value: parsed.data.newValue,
+        reason: parsed.data.reason,
         note: parsed.data.note ?? null,
         user_id: user?.id ?? null,
-      });
+      };
+      // One row per field; an `other` report — or a wrong-location report
+      // filed without a pin — is a single field-less row.
+      const rows: Record<string, unknown>[] =
+        parsed.data.proposals.length > 0
+          ? parsed.data.proposals.map((proposal) => ({
+              ...base,
+              field: proposal.field,
+              new_value: proposal.newValue,
+            }))
+          : [{ ...base, field: null, new_value: "" }];
+      const { error } = await getSupabase().from("corrections").insert(rows);
       if (error) throw new Error(error.message);
     },
     onSuccess: () => {
@@ -88,7 +106,10 @@ export interface CorrectionItem {
   /** Null only if the building was hard-deleted out from under the report. */
   buildingId: string | null;
   userId: string | null;
-  field: CorrectionField;
+  /** Null on an `other` report — a note with no column to write. */
+  field: CorrectionField | null;
+  /** Why the report was filed; null on rows written before migration 0006. */
+  reason: CorrectionReason | null;
   newValue: string;
   note: string | null;
   status: CorrectionStatus;
@@ -115,7 +136,7 @@ export function useCorrections(status: CorrectionStatus = "pending") {
       const result = (await getSupabase()
         .from("corrections")
         .select(
-          "id, building_id, user_id, field, new_value, note, status, " +
+          "id, building_id, user_id, field, reason, new_value, note, status, " +
             "review_note, created_at, reviewed_at, " +
             "buildings ( id, name, description, category, lat, lng, icon, " +
             "aliases, opening_hours, is_accessible_entry, campus_id )"
@@ -131,7 +152,8 @@ export function useCorrections(status: CorrectionStatus = "pending") {
         // queue: dropping it would silently discard someone's report.
         buildingId: (row.building_id as string | null) ?? null,
         userId: (row.user_id as string | null) ?? null,
-        field: row.field as CorrectionField,
+        field: (row.field as CorrectionField | null) ?? null,
+        reason: (row.reason as CorrectionReason | null) ?? null,
         newValue: row.new_value as string,
         note: (row.note as string | null) ?? null,
         status: row.status as CorrectionStatus,
@@ -167,13 +189,16 @@ export interface ModerationArgs {
  * the building is updated first, and if that fails the row stays `pending`
  * rather than being marked done against a value that never landed. The audit
  * trigger sees the building change on its own; this only records the decision.
+ *
+ * A note-only report (`field === null`, i.e. an `other` reason) has no building
+ * write at all — approving it just records the decision.
  */
 export function useModerateCorrection() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async ({ correction, decision, reviewNote }: ModerationArgs) => {
-      if (decision === "approved" && correction.buildingId) {
+      if (decision === "approved" && correction.buildingId && correction.field) {
         if (!correction.building) {
           throw new Error("That building no longer exists — reject this report.");
         }
