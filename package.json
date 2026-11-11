@@ -1,6 +1,7 @@
 {
   "name": "expo-app",
   "main": "expo-router/entry",
+  "type": "module",
   "version": "1.0.0",
   "scripts": {
     "postinstall": "patch-package",
@@ -9,7 +10,7 @@
     "expo:start:static:build": "npx expo start --no-dev --minify --localhost",
     "expo:static:build": "node scripts/build.js",
     "server:build": "esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=server_dist",
-    "server:prod": "NODE_ENV=production node server_dist/index.js",
+    "server:prod": "cross-env NODE_ENV=production node server_dist/index.js",
     "db:push": "drizzle-kit push",
     "db:seed": "tsx scripts/seed.ts",
     "admin:grant": "tsx scripts/make-admin.ts",
@@ -76,6 +77,7 @@
     "@types/express": "^5.0.0",
     "@types/pg": "^8.23.1",
     "@types/react": "~19.2.4",
+    "cross-env": "^10.1.0",
     "drizzle-kit": "^0.31.4",
     "eslint": "^9.31.0",
     "eslint-config-expo": "~57.0.2",
