@@ -8,6 +8,7 @@ import {
 } from "@maplibre/maplibre-react-native";
 import { MapPin } from "lucide-react-native";
 import { useTheme } from "@/components/ThemeProvider";
+import { getMapStyle } from "@/lib/map-style";
 
 /**
  * The native half of the location picker: a MapLibre view with a pin.
@@ -19,8 +20,7 @@ import { useTheme } from "@/components/ThemeProvider";
  * the map. Tapping again moves it; the modal copy reflects that.
  */
 
-const MAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
-const DEFAULT_ZOOM = 16;
+const DEFAULT_ZOOM = 17;
 
 export interface LocationPickerMapHandle {
   animateToRegion: (lat: number, lng: number, durationMs?: number) => void;
@@ -37,7 +37,7 @@ export interface LocationPickerMapProps {
 
 const LocationPickerMap = forwardRef<LocationPickerMapHandle, LocationPickerMapProps>(
   ({ center, point, onPick, onDrag }, ref) => {
-    const { theme } = useTheme();
+    const { theme, scheme } = useTheme();
     const cameraRef = useRef<CameraRef>(null);
 
     useImperativeHandle(ref, () => ({
@@ -52,7 +52,7 @@ const LocationPickerMap = forwardRef<LocationPickerMapHandle, LocationPickerMapP
     return (
       <Map
         style={StyleSheet.absoluteFill}
-        mapStyle={MAP_STYLE}
+        mapStyle={getMapStyle(scheme)}
         onPress={(event) => {
           const [lng, lat] = event.nativeEvent.lngLat;
           onPick(lat, lng);

@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
+import * as Linking from "expo-linking";
 import {
   MapPin,
   Navigation,
@@ -43,8 +44,10 @@ import { useSystemBars, useTheme } from "@/components/ThemeProvider";
 import { actionGradient } from "@/constants/gradients";
 import type { Theme } from "@/constants/colors";
 import {
+  describeLocationError,
   getCurrentUserLocation,
   LocationPermissionError,
+  LocationServicesError,
 } from "@/lib/location";
 import {
   calculateStraightDistance,
@@ -284,13 +287,16 @@ export default function MapScreen() {
           "Location Unavailable",
           "Using your last known location (up to 10 minutes old)."
         );
-      } else if (error instanceof LocationPermissionError) {
-        Alert.alert(
-          "Location Permission",
-          "Please enable location access to use this feature."
-        );
+      } else if (
+        error instanceof LocationPermissionError ||
+        error instanceof LocationServicesError
+      ) {
+        Alert.alert("Location Permission", describeLocationError(error), [
+          { text: "Not now", style: "cancel" },
+          { text: "Open Settings", onPress: () => void Linking.openSettings() },
+        ]);
       } else {
-        Alert.alert("Location Error", "Could not get your current location.");
+        Alert.alert("Location Error", describeLocationError(error));
       }
     }
     setLocationLoading(false);
@@ -406,13 +412,16 @@ export default function MapScreen() {
         ]
       );
     } catch (error) {
-      if (error instanceof LocationPermissionError) {
-        Alert.alert(
-          "Location Permission",
-          "Please enable location access to set a home."
-        );
+      if (
+        error instanceof LocationPermissionError ||
+        error instanceof LocationServicesError
+      ) {
+        Alert.alert("Location Permission", describeLocationError(error), [
+          { text: "Not now", style: "cancel" },
+          { text: "Open Settings", onPress: () => void Linking.openSettings() },
+        ]);
       } else {
-        Alert.alert("Location Error", "Could not get your current location.");
+        Alert.alert("Location Error", describeLocationError(error));
       }
     }
     setLocationLoading(false);

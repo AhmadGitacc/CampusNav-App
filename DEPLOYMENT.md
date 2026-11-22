@@ -154,6 +154,25 @@ The app degrades gracefully if the backend is down (OSRM fallback + persisted
 offline cache), but **step-free routing and the admin CMS require a live
 backend**.
 
+### 1.7 Supabase sign-in redirects (required for the APK)
+
+Magic links are sent with `emailRedirectTo` set to
+`EXPO_PUBLIC_AUTH_REDIRECT_URL` (the production backend callback page defined
+in `eas.json`). Supabase silently replaces an unrecognised URL with its Site
+URL — which is why links were landing on `http://localhost:3000`.
+
+In the Supabase dashboard, open **Authentication → URL Configuration** and set:
+
+- **Site URL:** `https://campusnav-backend-production.up.railway.app`
+- **Redirect URLs:** add both
+  - `https://campusnav-backend-production.up.railway.app/api/auth/callback`
+  - `myapp://auth/callback`
+
+Then redeploy the backend so `/api/auth/callback` is live. That page receives
+the tokens from Supabase and opens the app with `myapp://auth/callback#…`;
+`AuthProvider` converts them into a Supabase session. If you change the app
+scheme in `app.json`, update the deep-link entry too.
+
 ---
 
 ## Part 2 — Android APK Build

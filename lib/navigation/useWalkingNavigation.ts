@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Haptics from "expo-haptics";
 import { boundsOf } from "@/lib/geo";
 import {
+  describeLocationError,
   getCurrentUserLocation,
-  LocationPermissionError,
   watchUserLocation,
   type LocationWatcher,
 } from "@/lib/location";
@@ -208,9 +208,7 @@ export function useWalkingNavigation({
       // A dead watch costs live progress, not the route — keep the sheet up
       // with the step list and say why nothing is moving.
       setMessage(
-        error instanceof LocationPermissionError
-          ? "Location permission is required to follow this route."
-          : "Live tracking is unavailable here — the route is still shown on the map."
+        `${describeLocationError(error)} Live tracking is unavailable — the route is still shown on the map.`
       );
     }
   }, [handlePosition, stopWatching]);
@@ -235,11 +233,7 @@ export function useWalkingNavigation({
         );
       } else {
         setState("error");
-        setMessage(
-          error instanceof LocationPermissionError
-            ? "Enable location access to get turn-by-turn directions."
-            : "Could not get your location. Please try again."
-        );
+        setMessage(describeLocationError(error));
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         return;
       }

@@ -1,4 +1,4 @@
-# CampusNav / NSUK Navigator — Project Overview
+# CampusNav / Campus Navigator — Project Overview
 
 A cross-platform (iOS / Android / Web) campus navigation app built with **Expo Router + React Native**, backed by a lightweight **Express** server and provisioned for **PostgreSQL via Drizzle ORM**. Currently ships as a guest-accessible NSUK (Nasarawa State University, Keffi) campus map with building markers, free-text search, and OSRM-backed walking directions.
 
@@ -65,7 +65,7 @@ CampusNav-App/
 ├── assets/images/            # icon, splash, favicon, Android adaptive icons
 ├── patches/                  # patch-package: expo-asset+12.0.12.patch
 ├── drizzle.config.ts         # Postgres config (requires DATABASE_URL)
-├── app.json                  # Expo config: NSUK Navigator, plugins, experiments
+├── app.json                  # Expo config: Campus Navigator, plugins, experiments
 ├── tsconfig.json             # Paths: @/* → ./*, @shared/* → ./shared/*
 ├── eslint.config.js          # eslint-config-expo (flat)
 ├── metro.config.js, babel.config.js (React Compiler enabled)

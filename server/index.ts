@@ -108,6 +108,87 @@ function getAppName(): string {
   }
 }
 
+function getAppScheme(): string {
+  try {
+    const appJsonPath = path.resolve(process.cwd(), "app.json");
+    const appJson = JSON.parse(fs.readFileSync(appJsonPath, "utf-8"));
+    return appJson.expo?.scheme || "myapp";
+  } catch {
+    return "myapp";
+  }
+}
+
+const AUTH_CALLBACK_HTML = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Campus Navigator — Signing in</title>
+  <link rel="icon" href="/assets/images/favicon.png" />
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f2f6f3; color: #17341f; padding: 24px; }
+    .card { width: min(420px, 100%); background: #fff; border-radius: 20px;
+      padding: 32px; text-align: center; box-shadow: 0 12px 40px rgba(25,81,43,.14); }
+    img { width: 72px; height: 72px; border-radius: 18px; }
+    h1 { font-size: 22px; margin: 18px 0 8px; }
+    p { font-size: 15px; line-height: 1.5; color: #5c6b60; margin: 0; }
+    a.button { display: none; margin-top: 22px; padding: 13px 22px; border-radius: 12px;
+      background: #19512b; color: #fff; font-weight: 600; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <img src="/assets/images/icon.png" alt="" />
+    <h1 id="title">Completing sign in…</h1>
+    <p id="message">Opening Campus Navigator…</p>
+    <a id="open" class="button" href="#">Open Campus Navigator</a>
+  </main>
+  <script>
+    (function () {
+      var raw = window.location.hash.replace(/^#/, '') ||
+        window.location.search.replace(/^\\?/, '');
+      var params = new URLSearchParams(raw);
+      var error = params.get('error_description') || params.get('error');
+      var access = params.get('access_token');
+      var refresh = params.get('refresh_token');
+      var tokenHash = params.get('token_hash');
+      var title = document.getElementById('title');
+      var message = document.getElementById('message');
+      var open = document.getElementById('open');
+
+      if (error) {
+        title.textContent = 'Sign-in failed';
+        message.textContent = error;
+        return;
+      }
+      if ((!access || !refresh) && !tokenHash) {
+        title.textContent = 'Sign-in link opened';
+        message.textContent = 'Return to Campus Navigator to finish signing in.';
+        return;
+      }
+
+      var target = '__APP_SCHEME__://auth/callback' + (raw ? '#' + raw : '');
+      open.href = target;
+      open.style.display = 'inline-block';
+      message.textContent = 'If the app does not open automatically, tap the button below.';
+      setTimeout(function () { window.location.href = target; }, 400);
+    })();
+  </script>
+</body>
+</html>`;
+
+/** Supabase magic links land here in production, then hand off to the app. */
+function setupAuthCallback(app: express.Application) {
+  app.get("/api/auth/callback", (_req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Referrer-Policy", "no-referrer");
+    res.type("html").send(AUTH_CALLBACK_HTML.replace(/__APP_SCHEME__/g, getAppScheme()));
+  });
+}
+
 function serveExpoManifest(platform: string, res: Response) {
   const manifestPath = path.resolve(
     process.cwd(),
@@ -230,6 +311,7 @@ function setupErrorHandler(app: express.Application) {
   setupBodyParsing(app);
   setupRequestLogging(app);
 
+  setupAuthCallback(app);
   configureExpoAndLanding(app);
 
   const server = await registerRoutes(app);

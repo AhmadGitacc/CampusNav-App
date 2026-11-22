@@ -13,13 +13,13 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
-import * as Linking from "expo-linking";
 import * as Haptics from "expo-haptics";
 import Animated, { FadeInDown, FadeInUp } from "react-native-reanimated";
 import { ArrowLeft, Check, Mail } from "lucide-react-native";
 import { useSystemBars, useTheme } from "@/components/ThemeProvider";
 import { actionGradient, brandGradient } from "@/constants/gradients";
 import type { Theme } from "@/constants/colors";
+import { getAuthRedirectUrl } from "@/lib/auth-redirect";
 import { getSupabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/useAuth";
 
@@ -63,7 +63,7 @@ export default function SignInScreen() {
     try {
       const { error: otpError } = await getSupabase().auth.signInWithOtp({
         email: email.trim(),
-        options: { emailRedirectTo: Linking.createURL("/") },
+        options: { emailRedirectTo: getAuthRedirectUrl() },
       });
 
       if (otpError) throw otpError;
@@ -142,8 +142,8 @@ export default function SignInScreen() {
             <View style={styles.sentBlock}>
               <Text style={styles.cardTitle}>Almost there</Text>
               <Text style={styles.cardDescription}>
-                Tap the link in the email sent to {email.trim()} to finish
-                signing in. You can close this screen.
+                Tap the link in the email sent to {email.trim()} — it opens
+                Campus Navigator automatically. You can close this screen.
               </Text>
 
               <Pressable

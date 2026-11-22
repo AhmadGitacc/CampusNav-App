@@ -30,7 +30,7 @@ const CampusMap = forwardRef<any, CampusMapProps>(
         <View style={styles.mapPlaceholder}>
           <MapPin size={48} color={theme.tint} />
           <Text style={[styles.title, { color: theme.text }]}>
-            NSUK Campus Map
+            Campus Navigator Map
           </Text>
           <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
             For the full interactive map experience, open this app on your phone

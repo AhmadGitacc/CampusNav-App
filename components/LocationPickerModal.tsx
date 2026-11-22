@@ -14,10 +14,16 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Crosshair, MapPin, X } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
+import * as Linking from "expo-linking";
 import { useTheme } from "@/components/ThemeProvider";
 import { actionGradient } from "@/constants/gradients";
 import type { Theme } from "@/constants/colors";
-import { getCurrentUserLocation, LocationPermissionError } from "@/lib/location";
+import {
+  describeLocationError,
+  getCurrentUserLocation,
+  LocationPermissionError,
+  LocationServicesError,
+} from "@/lib/location";
 import LocationPickerMap, {
   type LocationPickerMapHandle,
 } from "@/components/LocationPickerMap";
@@ -100,11 +106,18 @@ export function LocationPickerModal({
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch (error) {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      const needsSettings =
+        error instanceof LocationPermissionError ||
+        error instanceof LocationServicesError;
       Alert.alert(
-        error instanceof LocationPermissionError ? "Location permission denied" : "Couldn't get your location",
-        error instanceof LocationPermissionError
-          ? "Allow location access in settings, or drop the pin on the map instead."
-          : "Drop the pin on the map instead."
+        needsSettings ? "Location Permission" : "Location Error",
+        `${describeLocationError(error)} You can also drop the pin on the map instead.`,
+        needsSettings
+          ? [
+              { text: "Not now", style: "cancel" },
+              { text: "Open Settings", onPress: () => void Linking.openSettings() },
+            ]
+          : [{ text: "OK" }]
       );
     } finally {
       setLocating(false);

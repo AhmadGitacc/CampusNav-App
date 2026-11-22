@@ -1,4 +1,4 @@
-# CampusNav / NSUK Navigator — Complete Project Documentation
+# CampusNav / Campus Navigator — Complete Project Documentation
 
 > **Purpose of this file.** One self-contained reference for the product, its features, the
 > architecture behind them, the decisions that shaped it, the data model, the routing engine,
@@ -82,7 +82,7 @@ campus's own website does not list.
 
 | Property | Value | Notes |
 | --- | --- | --- |
-| App name | `NSUK Navigator` | `app.json` |
+| App name | `Campus Navigator` | `app.json` |
 | Slug | `nsuk-navigator` | |
 | URL scheme | `myapp` | placeholder; not used for deep links today |
 | iOS bundle id | `com.myapp` | **placeholder — must be changed before store submission** |

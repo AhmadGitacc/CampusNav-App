@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "NSUK Navigator",
+    "name": "Campus Navigator",
     "slug": "nsuk-navigator",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -49,7 +49,7 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Allow NSUK Navigator to use your location for campus navigation."
+          "locationWhenInUsePermission": "Allow Campus Navigator to use your location for campus navigation."
         }
       ],
       "@maplibre/maplibre-react-native"

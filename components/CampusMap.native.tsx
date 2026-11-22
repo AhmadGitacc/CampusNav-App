@@ -10,15 +10,9 @@ import {
 } from "@maplibre/maplibre-react-native";
 import { MarkerIcon } from "@/components/MarkerIcon";
 import { useTheme } from "@/components/ThemeProvider";
+import { getMapStyle } from "@/lib/map-style";
 import type { MapRegion } from "@/lib/navigation/useWalkingNavigation";
 import type { CampusMarker, LatLon } from "@shared/types";
-
-/**
- * Keyless map stack: MapLibre Native renders OpenFreeMap's OSM vector tiles.
- * No Google Cloud project, API key, or SHA-1 restriction is needed — the APK
- * only needs network access for tiles (API data still uses the offline cache).
- */
-const MAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
 
 export interface CampusMapHandle {
   animateToRegion: (region: MapRegion, durationMs?: number) => void;
@@ -52,7 +46,7 @@ const NativeMapView = forwardRef<CampusMapHandle, NativeMapViewProps>(
     },
     ref
   ) => {
-    const { theme } = useTheme();
+    const { theme, scheme } = useTheme();
     const cameraRef = useRef<CameraRef>(null);
 
     // The rest of the app still thinks in lat/lng-delta regions. Convert
@@ -94,7 +88,7 @@ const NativeMapView = forwardRef<CampusMapHandle, NativeMapViewProps>(
     return (
       <Map
         style={StyleSheet.absoluteFill}
-        mapStyle={MAP_STYLE}
+        mapStyle={getMapStyle(scheme)}
         compass={false}
         onRegionDidChange={(event) => {
           const [lng, lat] = event.nativeEvent.center;
@@ -103,8 +97,32 @@ const NativeMapView = forwardRef<CampusMapHandle, NativeMapViewProps>(
       >
         <Camera
           ref={cameraRef}
-          initialViewState={{ center: [campusLng, campusLat], zoom: 15.5 }}
+          initialViewState={{
+            center: [campusLng, campusLat],
+            zoom: 16.5,
+            pitch: 40,
+          }}
+          maxZoom={19}
         />
+
+        {/* The dark style only has flat building footprints — add the same 3D
+            extrusion the detailed light style ships with. */}
+        {scheme === "dark" ? (
+          <Layer
+            id="campus-buildings-3d"
+            type="fill-extrusion"
+            source="openmaptiles"
+            source-layer="building"
+            minzoom={14}
+            filter={["!", ["has", "hide_3d"]]}
+            paint={{
+              "fill-extrusion-color": "#3d5144",
+              "fill-extrusion-height": ["get", "render_height"],
+              "fill-extrusion-base": ["get", "render_min_height"],
+              "fill-extrusion-opacity": 0.75,
+            }}
+          />
+        ) : null}
 
         {markers.map((marker) => {
           const isSelected = selectedMarkerId === marker.id;
@@ -151,12 +169,22 @@ const NativeMapView = forwardRef<CampusMapHandle, NativeMapViewProps>(
         {showRoute && routeCoords && routeCoords.length > 1 ? (
           <GeoJSONSource id="campus-route" data={routeData}>
             <Layer
+              id="campus-route-casing"
+              type="line"
+              source="campus-route"
+              paint={{
+                "line-color": theme.card,
+                "line-width": 9,
+                "line-opacity": 0.85,
+              }}
+            />
+            <Layer
               id="campus-route-line"
               type="line"
               source="campus-route"
               paint={{
                 "line-color": theme.tint,
-                "line-width": 4,
+                "line-width": 5,
               }}
             />
           </GeoJSONSource>
