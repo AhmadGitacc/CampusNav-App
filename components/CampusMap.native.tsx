@@ -1,9 +1,28 @@
-import React, { forwardRef } from "react";
+import React, { forwardRef, useImperativeHandle, useMemo, useRef } from "react";
 import { StyleSheet, View } from "react-native";
-import MapView, { Marker, Polyline, PROVIDER_DEFAULT } from "react-native-maps";
+import {
+  Camera,
+  GeoJSONSource,
+  Layer,
+  Map,
+  Marker,
+  type CameraRef,
+} from "@maplibre/maplibre-react-native";
 import { MarkerIcon } from "@/components/MarkerIcon";
 import { useTheme } from "@/components/ThemeProvider";
+import type { MapRegion } from "@/lib/navigation/useWalkingNavigation";
 import type { CampusMarker, LatLon } from "@shared/types";
+
+/**
+ * Keyless map stack: MapLibre Native renders OpenFreeMap's OSM vector tiles.
+ * No Google Cloud project, API key, or SHA-1 restriction is needed — the APK
+ * only needs network access for tiles (API data still uses the offline cache).
+ */
+const MAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
+
+export interface CampusMapHandle {
+  animateToRegion: (region: MapRegion, durationMs?: number) => void;
+}
 
 interface NativeMapViewProps {
   markers: CampusMarker[];
@@ -18,16 +37,7 @@ interface NativeMapViewProps {
   onRegionChange?: (center: LatLon) => void;
 }
 
-/**
- * PROVIDER_DEFAULT on purpose: Apple Maps on iOS, Google Maps on Android. Both
- * follow the OS appearance for the tile layer, and picking PROVIDER_GOOGLE to
- * get `customMapStyle` would mean shipping an API key and pinning every user to
- * Google on iOS. The one gap this leaves is an explicit in-app override that
- * disagrees with the system — the tiles then stay on the system appearance
- * while our marker and route chrome follow the override. Recorded in style.md
- * §Map rather than papered over with a second provider.
- */
-const NativeMapView = forwardRef<MapView, NativeMapViewProps>(
+const NativeMapView = forwardRef<CampusMapHandle, NativeMapViewProps>(
   (
     {
       markers,
@@ -43,70 +53,115 @@ const NativeMapView = forwardRef<MapView, NativeMapViewProps>(
     ref
   ) => {
     const { theme } = useTheme();
+    const cameraRef = useRef<CameraRef>(null);
+
+    // The rest of the app still thinks in lat/lng-delta regions. Convert
+    // them to a MapLibre bounds camera move so callers need no changes.
+    useImperativeHandle(ref, () => ({
+      animateToRegion(region, durationMs = 600) {
+        cameraRef.current?.fitBounds(
+          [
+            region.longitude - region.longitudeDelta / 2,
+            region.latitude - region.latitudeDelta / 2,
+            region.longitude + region.longitudeDelta / 2,
+            region.latitude + region.latitudeDelta / 2,
+          ],
+          { duration: durationMs }
+        );
+      },
+    }));
+
+    const routeData = useMemo<GeoJSON.FeatureCollection>(
+      () => ({
+        type: "FeatureCollection",
+        features:
+          routeCoords && routeCoords.length > 1
+            ? [
+                {
+                  type: "Feature",
+                  properties: {},
+                  geometry: {
+                    type: "LineString",
+                    coordinates: routeCoords.map((p) => [p.longitude, p.latitude]),
+                  },
+                },
+              ]
+            : [],
+      }),
+      [routeCoords]
+    );
 
     return (
-      <MapView
-        ref={ref}
+      <Map
         style={StyleSheet.absoluteFill}
-        provider={PROVIDER_DEFAULT}
-        initialRegion={{
-          latitude: campusLat,
-          longitude: campusLng,
-          latitudeDelta: 0.008,
-          longitudeDelta: 0.008,
-        }}
-        showsUserLocation={!!userLocation}
-        showsMyLocationButton={false}
-        showsCompass={false}
-        mapType="standard"
-        onRegionChangeComplete={(region) => {
-          if (region) {
-            onRegionChange?.({
-              latitude: region.latitude,
-              longitude: region.longitude,
-            });
-          }
+        mapStyle={MAP_STYLE}
+        compass={false}
+        onRegionDidChange={(event) => {
+          const [lng, lat] = event.nativeEvent.center;
+          onRegionChange?.({ latitude: lat, longitude: lng });
         }}
       >
+        <Camera
+          ref={cameraRef}
+          initialViewState={{ center: [campusLng, campusLat], zoom: 15.5 }}
+        />
+
         {markers.map((marker) => {
           const isSelected = selectedMarkerId === marker.id;
           return (
             <Marker
               key={marker.id}
-              coordinate={{ latitude: marker.lat, longitude: marker.lng }}
-              title={marker.title}
-              description={marker.description}
+              id={marker.id}
+              lngLat={[marker.lng, marker.lat]}
               onPress={() => onMarkerPress(marker)}
             >
-              <View
-                style={[
-                  styles.markerContainer,
-                  {
-                    backgroundColor: isSelected ? theme.tintDark : theme.tint,
-                    borderColor: theme.onTint,
-                    shadowColor: theme.shadow,
-                  },
-                  isSelected && styles.markerSelected,
-                ]}
-              >
-                <MarkerIcon icon={marker.icon} />
+              <View style={styles.markerRoot}>
+                <View
+                  style={[
+                    styles.markerContainer,
+                    {
+                      backgroundColor: isSelected ? theme.tintDark : theme.tint,
+                      borderColor: theme.onTint,
+                      shadowColor: theme.shadow,
+                    },
+                    isSelected && styles.markerSelected,
+                  ]}
+                >
+                  <MarkerIcon icon={marker.icon} />
+                </View>
+                <View
+                  style={[styles.markerArrow, { borderTopColor: isSelected ? theme.tintDark : theme.tint }]}
+                />
               </View>
-              <View
-                style={[styles.markerArrow, { borderTopColor: isSelected ? theme.tintDark : theme.tint }]}
-              />
             </Marker>
           );
         })}
 
-        {showRoute && routeCoords && routeCoords.length > 0 && (
-          <Polyline
-            coordinates={routeCoords}
-            strokeColor={theme.tint}
-            strokeWidth={4}
-            lineDashPattern={[0]}
-          />
-        )}
-      </MapView>
+        {userLocation ? (
+          <Marker
+            id="user-location"
+            lngLat={[userLocation.longitude, userLocation.latitude]}
+          >
+            <View style={styles.userDotOuter}>
+              <View style={[styles.userDotInner, { backgroundColor: theme.tint }]} />
+            </View>
+          </Marker>
+        ) : null}
+
+        {showRoute && routeCoords && routeCoords.length > 1 ? (
+          <GeoJSONSource id="campus-route" data={routeData}>
+            <Layer
+              id="campus-route-line"
+              type="line"
+              source="campus-route"
+              paint={{
+                "line-color": theme.tint,
+                "line-width": 4,
+              }}
+            />
+          </GeoJSONSource>
+        ) : null}
+      </Map>
     );
   }
 );
@@ -116,6 +171,9 @@ NativeMapView.displayName = "NativeMapView";
 export default NativeMapView;
 
 const styles = StyleSheet.create({
+  markerRoot: {
+    alignItems: "center",
+  },
   markerContainer: {
     width: 36,
     height: 36,
@@ -144,5 +202,23 @@ const styles = StyleSheet.create({
     borderRightColor: "transparent",
     alignSelf: "center",
     marginTop: -1,
+  },
+  userDotOuter: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 3,
+    borderColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  userDotInner: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
   },
 });

@@ -5,7 +5,7 @@ import type {
 } from "@/components/LocationPickerMap.native";
 
 /**
- * No map on web: `react-native-maps` has no web build in this app (the public
+ * No map on web: the native MapLibre module cannot be imported here (the public
  * campus map is a placeholder there too, see CampusMap.web.tsx). The modal's
  * web branch offers manual entry instead, so this component is a no-op — it
  * exists so `import "./LocationPickerMap"` resolves on web without pulling the

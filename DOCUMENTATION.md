@@ -99,13 +99,13 @@ campus's own website does not list.
 | Layer | Choice | Version | Why this choice |
 | --- | --- | --- | --- |
 | App framework | Expo SDK | `~57.0.26` | Managed pipeline; native modules (maps, location) without ejecting |
-| UI runtime | React Native | `0.86.3` | `react-native-maps` and `expo-location` have no first-class web story without wrappers |
+| UI runtime | React Native | `0.86.3` | Native map/location modules are wrapped by platform-split components; web uses placeholders |
 | React | React | `19.2.3` | Matches RN 0.86 |
 | Web | `react-native-web` | `^0.21.0` | One codebase, three platforms |
 | Routing | `expo-router` | `~57.0.24` | File-based; `typedRoutes` makes `router.push("/admin")` a compile error if the route does not exist |
 | Language | TypeScript | `~6.0.3` | `strict: true`, no `any` in new code |
 | Optimizer | React Compiler | experimental | Enabled in `babel.config.js` + `app.json` |
-| Maps | `react-native-maps` | `1.27.2` | `PROVIDER_DEFAULT` — Apple Maps on iOS, Google Maps on Android |
+| Maps | `@maplibre/maplibre-react-native` | `11.5.1` | Keyless OSM vector tiles via OpenFreeMap; no Google API key or SHA-1 restriction |
 | State (server) | TanStack Query | `5.83.0` | Cache, persistence, optimistic mutations out of the box |
 | State (client) | React Context + hooks | — | No Redux/Zustand: the app has 3 global concerns (auth, theme, admin campus) |
 | Auth | Supabase Auth | `2.117.2` | Hosted; `app_metadata` claims are not client-forgeable |
@@ -558,7 +558,7 @@ AsyncStorage as source of truth, `profiles` as a mirror when signed in. Preferen
 | `AuthProvider.tsx` | Supabase session lifecycle |
 | `AdminCampusProvider.tsx` | Active campus for the CMS, session-scoped |
 | `CampusMap.tsx` | Static-analysis entry re-exporting the native types (Metro resolves `.native`/`.web` first) |
-| `CampusMap.native.tsx` | `react-native-maps` `MapView` + `Marker` + `Polyline`, custom pin views, `animateToRegion`, `showsUserLocation`, `onRegionChangeComplete` |
+| `CampusMap.native.tsx` | MapLibre `Map` + `Camera` + `Marker` + `GeoJSONSource`/`Layer`, custom pin views, `animateToRegion`, user dot, `onRegionDidChange` |
 | `CampusMap.web.tsx` | Placeholder panel + tappable marker list; no-op `animateToRegion` |
 | `MarkerIcon.tsx` | Single `getMarkerIcon(key)` mapping — the single source of truth for pin glyphs |
 | `NavigationSteps.tsx` | Turn list + exported `ManeuverGlyph` |
@@ -1360,15 +1360,14 @@ Single source of truth: `constants/colors.ts`, exposing `palettes.light` and `pa
 
 ### 12.2 Map tiles and dark mode
 
-`CampusMap.native.tsx` uses `PROVIDER_DEFAULT` — Apple Maps on iOS, Google Maps on Android — and that
-**stays**. Switching to `PROVIDER_GOOGLE` everywhere to enable a `customMapStyle` array would cost a
-Google Maps API key in the bundle and force every iOS user off Apple Maps for a styling feature they
-probably do not notice.
+`CampusMap.native.tsx` and `LocationPickerMap.native.tsx` use MapLibre Native with the keyless
+OpenFreeMap OSM style (`https://tiles.openfreemap.org/styles/positron`). No Google Maps API key,
+Google Cloud project, or SHA-1 restriction is needed anywhere in the app or build.
 
-Both providers follow the OS appearance for the tile layer, so system mode is fully themed on both
-platforms. The one known mismatch: **if an explicit override disagrees with the OS, the tiles stay on
-the system appearance while markers, route polyline and floating cards follow the override.** This is
-accepted, not fixed.
+The tiles are online-only, while route/graph data stays offline-first via the persisted React Query
+cache. Tiles do not follow the app's light/dark override: **markers, route line and floating cards
+follow the override, but the basemap does not.** OSM/OpenFreeMap attribution stays visible. The
+location picker moves its pin by tapping the map, since MapLibre `Marker` is not draggable.
 
 ### 12.3 Typography
 
@@ -1964,10 +1963,10 @@ what an admin carrying a phone around a campus actually needs.
 
 **ADR-27 — Camera control stays in `app/map.tsx`; the nav hook takes callbacks**
 *Context:* the hook needs to move the camera.
-*Decision:* `onCameraFit` / `onFollowUser` callbacks, not a `MapView` ref.
-*Consequence:* `lib/` stays free of map imports and the hook stays testable. It did cost the map
-components a real `onRegionChangeComplete` prop, and that prop forwards the centre as a plain
-`LatLon` rather than leaking react-native-maps's `(region, details)` event type across platforms.
+*Decision:* `onCameraFit` / `onFollowUser` callbacks, not a native map ref.
+*Consequence:* `lib/` stays free of map imports and the hook stays testable. The map component forwards
+the centre as a plain `LatLon` (from MapLibre's `onRegionDidChange`) rather than leaking a native
+event type across platforms.
 
 ---
 
@@ -1990,12 +1989,12 @@ note.
 
 ---
 
-**ADR-31 — `PROVIDER_DEFAULT` stays**
-*Context:* a `customMapStyle` array would require `PROVIDER_GOOGLE` everywhere.
-*Decision:* keep `PROVIDER_DEFAULT`; both providers follow the OS for tiles.
-*Consequence:* no Google Maps API key in the bundle, and iOS users keep Apple Maps. The one accepted
-mismatch: an explicit theme override that disagrees with the OS leaves tiles on the system
-appearance while our chrome follows the override.
+**ADR-31 — Keyless MapLibre tiles replace provider-default maps**
+*Context:* a Google Maps key would add cloud/SHA-1 management; Apple/Google tiles cannot be styled
+consistently across platforms without a key.
+*Decision:* use `@maplibre/maplibre-react-native` with the public OpenFreeMap OSM style on both platforms.
+*Consequence:* no Google Maps API key in the bundle and no provider split. Tiles need a connection and
+do not follow the app theme override; markers, route line and chrome do. OSM attribution stays visible.
 
 ---
 

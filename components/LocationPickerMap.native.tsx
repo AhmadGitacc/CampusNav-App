@@ -1,18 +1,26 @@
 import React, { forwardRef, useImperativeHandle, useRef } from "react";
 import { StyleSheet, View } from "react-native";
-import MapView, { Marker, PROVIDER_DEFAULT } from "react-native-maps";
+import {
+  Camera,
+  Map,
+  Marker,
+  type CameraRef,
+} from "@maplibre/maplibre-react-native";
 import { MapPin } from "lucide-react-native";
 import { useTheme } from "@/components/ThemeProvider";
 
 /**
- * The native half of the location picker: a `react-native-maps` view with a
- * draggable pin. Split into `.native` / `.web` files the same way
- * `CampusMap` is, because importing `react-native-maps` on web crashes at
- * module scope (`codegenNativeComponent` doesn't exist there) — a runtime
+ * The native half of the location picker: a MapLibre view with a pin.
+ * Split into `.native` / `.web` files the same way `CampusMap` is, because
+ * importing a native-only map module on web crashes at module scope — a runtime
  * `Platform.OS` check cannot save an import that already ran.
+ *
+ * MapLibre's `Marker` has no `draggable` prop, so the pin is placed by tapping
+ * the map. Tapping again moves it; the modal copy reflects that.
  */
 
-const DEFAULT_DELTA = 0.004;
+const MAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
+const DEFAULT_ZOOM = 16;
 
 export interface LocationPickerMapHandle {
   animateToRegion: (lat: number, lng: number, durationMs?: number) => void;
@@ -23,66 +31,58 @@ export interface LocationPickerMapProps {
   point: { lat: number; lng: number } | null;
   /** A tap anywhere on the map. */
   onPick: (lat: number, lng: number) => void;
-  /** The pin finished a drag. */
+  /** The pin finished a drag. On native this fires on a re-tap/move. */
   onDrag: (lat: number, lng: number) => void;
 }
 
 const LocationPickerMap = forwardRef<LocationPickerMapHandle, LocationPickerMapProps>(
   ({ center, point, onPick, onDrag }, ref) => {
     const { theme } = useTheme();
-    const mapRef = useRef<MapView | null>(null);
+    const cameraRef = useRef<CameraRef>(null);
 
     useImperativeHandle(ref, () => ({
       animateToRegion: (lat, lng, durationMs = 350) => {
-        mapRef.current?.animateToRegion(
-          {
-            latitude: lat,
-            longitude: lng,
-            latitudeDelta: DEFAULT_DELTA,
-            longitudeDelta: DEFAULT_DELTA,
-          },
-          durationMs
-        );
+        cameraRef.current?.easeTo({
+          center: [lng, lat],
+          duration: durationMs,
+        });
       },
     }));
 
     return (
-      <MapView
-        ref={mapRef}
+      <Map
         style={StyleSheet.absoluteFill}
-        provider={PROVIDER_DEFAULT}
-        initialRegion={{
-          latitude: center.lat,
-          longitude: center.lng,
-          latitudeDelta: DEFAULT_DELTA,
-          longitudeDelta: DEFAULT_DELTA,
-        }}
+        mapStyle={MAP_STYLE}
         onPress={(event) => {
-          const { latitude, longitude } = event.nativeEvent.coordinate;
-          onPick(latitude, longitude);
+          const [lng, lat] = event.nativeEvent.lngLat;
+          onPick(lat, lng);
+          onDrag(lat, lng);
         }}
       >
+        <Camera
+          ref={cameraRef}
+          initialViewState={{ center: [center.lng, center.lat], zoom: DEFAULT_ZOOM }}
+        />
         {point ? (
           <Marker
-            coordinate={{ latitude: point.lat, longitude: point.lng }}
-            draggable
-            onDragEnd={(event) => {
-              const { latitude, longitude } = event.nativeEvent.coordinate;
-              onDrag(latitude, longitude);
-            }}
+            id="picked-location"
+            lngLat={[point.lng, point.lat]}
+            onPress={() => onDrag(point.lat, point.lng)}
           >
-            <View
-              style={[
-                styles.pin,
-                { backgroundColor: theme.tint, borderColor: theme.onTint, shadowColor: theme.shadow },
-              ]}
-            >
-              <MapPin size={20} color={theme.onTint} strokeWidth={2.6} />
+            <View style={styles.pinRoot}>
+              <View
+                style={[
+                  styles.pin,
+                  { backgroundColor: theme.tint, borderColor: theme.onTint, shadowColor: theme.shadow },
+                ]}
+              >
+                <MapPin size={20} color={theme.onTint} strokeWidth={2.6} />
+              </View>
+              <View style={[styles.pinArrow, { borderTopColor: theme.tint }]} />
             </View>
-            <View style={[styles.pinArrow, { borderTopColor: theme.tint }]} />
           </Marker>
         ) : null}
-      </MapView>
+      </Map>
     );
   }
 );
@@ -92,6 +92,9 @@ LocationPickerMap.displayName = "LocationPickerMap";
 export default LocationPickerMap;
 
 const styles = StyleSheet.create({
+  pinRoot: {
+    alignItems: "center",
+  },
   pin: {
     width: 40,
     height: 40,

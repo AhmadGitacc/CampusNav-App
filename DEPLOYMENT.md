@@ -158,77 +158,50 @@ backend**.
 
 ## Part 2 — Android APK Build
 
-The project is a **bare Expo** app: there is no `android/` directory and no
-`eas.json` in the repo yet. You have two options.
+The project uses Expo's managed workflow: there is no `android/` directory.
+`eas.json` is already configured for an internal APK build and carries the three
+public env values. Map tiles come from keyless OpenFreeMap via MapLibre — no
+Google Maps API key or SHA-1 fingerprint is needed.
 
 ### 2.1 Before you build — checklist
 
-- [ ] Backend deployed and `https://your-backend-domain/api/health` returns `{"ok":true}`.
-- [ ] `app.json` → `expo.android.package` changed from the placeholder
-      `com.myapp` to your real application id (e.g. `com.nsuk.navigator`).
-      **Changing it after first publish is a breaking change** (Android treats
-      it as a different app).
-- [ ] `app.json` → `expo.version` and an Android `versionCode` set (bump
-      `versionCode` for every release you want Android to treat as an upgrade).
-- [ ] `expo-location` added to `plugins` in `app.json` with a
-      `locationWhenInUse` permission message — navigation needs location, and
-      standalone builds must declare the permission explicitly:
-
-      ```json
-      ["expo-location", {
-        "locationWhenInUsePermission": "Allow NSUK Navigator to use your location for campus navigation."
-      }]
-      ```
-
-- [ ] You know the three `EXPO_PUBLIC_*` values to bake in:
-  - `EXPO_PUBLIC_DOMAIN` — backend host, **no protocol** (e.g.
-    `campusnav.example.com`). `lib/query-client.ts` prepends `https://` itself.
-  - `EXPO_PUBLIC_SUPABASE_URL`
-  - `EXPO_PUBLIC_SUPABASE_ANON_KEY`
-
-  These are safe to embed in the APK (Supabase RLS protects the data); the
-  service-role key must **never** appear in any client build.
+- [x] Backend deployed: `https://campusnav-backend-production.up.railway.app/api/health`
+      returned `{"ok":true}`.
+- [x] `app.json` → `expo.android.package` set to `com.campus.navigator`, with
+      `versionCode: 1`. **Confirm this id before the first publish** — Android
+      treats a later change as a different app. Bump `versionCode` for every release.
+- [x] `expo-location` and `@maplibre/maplibre-react-native` are in `expo.plugins`;
+      the location permission message is declared.
+- [x] `eas.json` has `preview` (APK, internal) and `production` (AAB) profiles,
+      with `EXPO_PUBLIC_DOMAIN`, `EXPO_PUBLIC_SUPABASE_URL`, and
+      `EXPO_PUBLIC_SUPABASE_ANON_KEY` baked in from `.env`.
+      `.env` is gitignored and is **not** uploaded to EAS; if any of these values
+      change, update `eas.json` too (or use EAS secrets) and rebuild.
+      Never put `DATABASE_URL`, `DIRECT_URL`, or `SUPABASE_SERVICE_ROLE_KEY` here.
+- [ ] `eas login` works and the project is linked (`eas init` on first run).
 
 ### 2.2 Option A — EAS Build (recommended, no local Android SDK)
 
 EAS runs the build in Expo's cloud and handles signing.
 
-1. Install and log in:
+1. Install and log in, then link the project once:
 
    ```bash
    npm install -g eas-cli
    eas login
+   eas init
    ```
 
-2. Create `eas.json` at the repo root:
+2. Confirm the prepared build config:
 
-   ```json
-   {
-     "cli": { "version": ">= 12.0.0" },
-     "build": {
-       "preview": {
-         "distribution": "internal",
-         "android": { "buildType": "apk" },
-         "env": {
-           "EXPO_PUBLIC_DOMAIN": "your-backend-domain.example.com",
-           "EXPO_PUBLIC_SUPABASE_URL": "https://your-project-ref.supabase.co",
-           "EXPO_PUBLIC_SUPABASE_ANON_KEY": "your-anon-key"
-         }
-       },
-       "production": {
-         "android": { "buildType": "app-bundle" },
-         "env": {
-           "EXPO_PUBLIC_DOMAIN": "your-backend-domain.example.com",
-           "EXPO_PUBLIC_SUPABASE_URL": "https://your-project-ref.supabase.co",
-           "EXPO_PUBLIC_SUPABASE_ANON_KEY": "your-anon-key"
-         }
-       }
-     }
-   }
+   ```
+   # eas.json (already in the repo)
+   #   preview    → distribution: internal, android.buildType: apk
+   #   production → android.buildType: app-bundle (.aab)
+   #   env        → the three EXPO_PUBLIC_* values from .env
    ```
 
-   `preview` produces the **APK** you asked for; `production` produces an
-   `.aab` for Play Store submission.
+   `preview` produces the APK; `production` produces an `.aab` for Play Store.
 
 3. Run the build:
 
@@ -248,6 +221,9 @@ EAS runs the build in Expo's cloud and handles signing.
    # .env must contain the EXPO_PUBLIC_* values from 2.1
    npx expo prebuild -p android --clean
    ```
+
+   The MapLibre config plugin runs automatically during prebuild; no Google Maps
+   key or `googleMapsApiKey` entry is required.
 
 2. Build the release APK:
 
@@ -273,11 +249,14 @@ Verification checklist on-device:
 1. App boots (splash → home) — proves the `EXPO_PUBLIC_*` values were baked in
    correctly (a missing `EXPO_PUBLIC_DOMAIN` on native throws at first API
    call; missing Supabase keys degrade to guest mode).
-2. Tap a route request — if the backend is live you get a step-free campus
+2. Map tiles load (MapLibre + OpenFreeMap), markers appear, and the location
+   permission prompt works. No Google key is involved.
+3. Tap a route request — if the backend is live you get a step-free campus
    route; if it's down you get the OSRM fallback (check `adb logcat` for
    `503` / network errors).
-3. Kill the network, relaunch — previously fetched campuses/buildings should
-   render from the persisted React Query cache (offline-first behaviour).
+4. Kill the network, relaunch — previously fetched campuses/buildings should
+   render from the persisted React Query cache (offline-first behaviour). The
+   basemap itself needs a connection.
 
 ### 2.5 Rebuilding rules
 

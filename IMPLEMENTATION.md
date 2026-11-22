@@ -737,7 +737,7 @@ Camera: optional auto-follow — pan to center the user every fix *only if* the 
 2. **The map ref stays in `app/map.tsx`.** The hook takes `onCameraFit` / `onFollowUser` callbacks rather than a `MapView` ref — `lib/` stays free of map imports and the hook stays testable.
 3. **`RouteResult` shape is the endpoint.** §5's `POST /api/route` handler should return exactly `WalkingRoute`, so `useWalkingNavigation` works unchanged with `options.stepFree`.
 4. **No `annotations=duration,distance`.** Per-step `distance`/`duration` already come with `steps=true`; the annotation payload would only duplicate them.
-5. **Camera follow needed a real prop, so the map components grew one.** `onRegionChangeComplete` in react-native-maps 1.20 passes `(region: Region, details)` — *not* a `NativeSyntheticEvent` — so the component forwards the centre as a plain `LatLon` rather than leaking the event type across platforms.
+5. **Camera follow needed a real prop, so the map components grew one.** The map component forwards the centre as a plain `LatLon` (now from MapLibre's `onRegionDidChange`) rather than leaking a native event type across platforms.
 
 **Design notes**
 
@@ -1363,7 +1363,7 @@ Put in `constants/gradients.ts` as `GRADIENTS.brand.light/dark` and read from `u
 
 ### 8.5 Map styling
 
-- **Native:** if the provider is Google (`PROVIDER_GOOGLE`), add `customMapStyle={require("../../assets/map-style-dark.json")}` when dark (generate at [mapsplatformstyler](https://mapstyle.withgoogle.com/)). Current code uses `PROVIDER_DEFAULT` (Apple Maps on iOS) — **Apple Maps has no custom style**, so either accept system-following light tiles or switch iOS to `PROVIDER_GOOGLE`. Document the choice in `style.md`.
+- **Native:** resolved by the MapLibre/OpenFreeMap swap — no `customMapStyle` or Google key. Basemap tiles stay in OpenFreeMap's positron style; markers, route line and chrome follow `theme`. See `style.md`.
 - **Web:** `CampusMap.web.tsx` placeholder bg → `theme.backgroundSecondary`; the "open on your phone" copy stays.
 
 ### 8.6 System UI finishing touches

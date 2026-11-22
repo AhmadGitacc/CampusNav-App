@@ -1,0 +1,27 @@
+{
+  "cli": {
+    "version": ">= 12.0.0"
+  },
+  "build": {
+    "preview": {
+      "node": "22.23.3",
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_DOMAIN": "campusnav-backend-production.up.railway.app",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://hfmtmmketxvhwnxmzawz.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhmbXRtbWtldHh2aHdueG16YXd6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA2ODAwOTUsImV4cCI6MjEwNjI1NjA5NX0.H--xE7sbUEUoZC9PjqiII9inNZWqYSQno6ZnzgAQIE8"
+      }
+    },
+    "production": {
+      "node": "22.23.3",
+      "env": {
+        "EXPO_PUBLIC_DOMAIN": "campusnav-backend-production.up.railway.app",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://hfmtmmketxvhwnxmzawz.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhmbXRtbWtldHh2aHdueG16YXd6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA2ODAwOTUsImV4cCI6MjEwNjI1NjA5NX0.H--xE7sbUEUoZC9PjqiII9inNZWqYSQno6ZnzgAQIE8"
+      }
+    }
+  }
+}

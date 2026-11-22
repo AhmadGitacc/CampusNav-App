@@ -16,7 +16,7 @@ A cross-platform (iOS / Android / Web) campus navigation app built with **Expo R
 | Validation | Zod + drizzle-zod + zod-validation-error |
 | Data fetching | TanStack React Query v5 (`expo/fetch` transport) |
 | Animation | react-native-reanimated 4 + react-native-gesture-handler |
-| Maps | `react-native-maps` (native) with a platform-swapped web fallback |
+| Maps | `@maplibre/maplibre-react-native` (native, keyless OpenFreeMap) with a placeholder web fallback |
 | Icons | lucide-react-native (primary), @expo/vector-icons (error UI) |
 | Fonts | Inter 400/500/600/700 via @expo-google-fonts/inter |
 | Haptics | expo-haptics on every interactive tap |
@@ -37,7 +37,7 @@ CampusNav-App/
 │   └── +not-found.tsx        # 404 route (still template styling)
 │
 ├── components/
-│   ├── CampusMap.native.tsx  # react-native-maps MapView + Marker + Polyline
+│   ├── CampusMap.native.tsx  # MapLibre Map + Camera + Marker + route Layer
 │   ├── CampusMap.web.tsx     # Web fallback: placeholder + tappable marker list
 │   ├── ErrorBoundary.tsx     # App-level React error boundary
 │   ├── ErrorFallback.tsx     # Themed recovery UI (reload / view details)
@@ -130,11 +130,11 @@ Platform-split component (Metro resolves `.native.tsx` / `.web.tsx` for the `@/c
 
 | | Native | Web |
 | --- | --- | --- |
-| Engine | `react-native-maps` (PROVIDER_DEFAULT) | Static placeholder panel |
+| Engine | MapLibre + OpenFreeMap (keyless OSM tiles) | Static placeholder panel |
 | Markers | Custom pin views (36px tile, white 2.5px border, triangle arrow) | Tappable list rows |
-| Route | `Polyline` stroke `#0B6623`, width 4 | Not rendered |
+| Route | GeoJSON `LineLayer` stroke `theme.tint`, width 4 | Not rendered |
 | Ref API | `animateToRegion(region, ms)` | No-op `animateToRegion` |
-| User location | `showsUserLocation` | — |
+| User location | Custom blue dot `Marker` from `userLocation` prop | — |
 
 > Note: the web build has **no real map**, only a list — a known gap.
 

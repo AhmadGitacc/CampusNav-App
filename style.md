@@ -44,14 +44,15 @@ Single source of truth: `constants/colors.ts`. **Always import from there** — 
 
 ### Map
 
-`CampusMap.native.tsx` uses `PROVIDER_DEFAULT` — Apple Maps on iOS, Google Maps on Android — and **that stays**. The alternative is `PROVIDER_GOOGLE` everywhere so a `customMapStyle` JSON can be applied, which costs a Google Maps API key in the bundle and forces every iOS user off Apple Maps to get a styling feature they probably do not notice.
+`CampusMap.native.tsx` and `LocationPickerMap.native.tsx` render MapLibre Native with the keyless OpenFreeMap OSM vector style (`https://tiles.openfreemap.org/styles/positron`). There is no Google Maps API key, no Google Cloud project, and no SHA-1 restriction in the app or the build.
 
 What that buys and what it costs:
 
-- Both providers follow the OS appearance for the tile layer, so the default `system` mode is fully themed on both platforms.
-- If someone sets an explicit override that disagrees with the OS, the tiles stay on the system appearance while our markers, route polyline, and floating cards follow the override. This is the one known mismatch in the app. It is accepted, not fixed — fixing it means a custom style array per scheme, which means `PROVIDER_GOOGLE`, which means the API key.
+- No key management: tiles are public OSM/OpenFreeMap, so the APK only needs network access. Route data and all other app data still come from the offline-first cache.
+- Tiles do not follow the app's light/dark override. Markers, the route line, and floating cards do. OSM/OpenFreeMap attribution is left visible as required by the tile terms.
+- `LocationPickerMap` places/moves the pin by tapping the map — MapLibre's `Marker` has no `draggable` prop.
 
-Web has no map at all (the placeholder in `CampusMap.web.tsx` lists markers), so the whole question is native-only.
+Web has no map at all (the placeholder in `CampusMap.web.tsx` lists markers), so the map engine is native-only.
 
 ---
 

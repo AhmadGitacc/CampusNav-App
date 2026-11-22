@@ -124,7 +124,7 @@ Suggested features to take this from a demo to a shippable product. Ordered roug
 ### 12. Real web map (and PWA install)
 **Why:** `CampusMap.web.tsx` is a placeholder list — web users get no map at all, and the Replit deployment serves a landing page.
 **Build:**
-- Implement the web branch with `react-native-maps`'s web support or a Leaflet/MapLibre wrapper, sharing the same `markers`/`routeCoords` props contract so `app/map.tsx` is unchanged.
+- Implement the web branch with a MapLibre GL JS wrapper, sharing the same `markers`/`routeCoords` props contract so `app/map.tsx` is unchanged.
 - Keep the list as an accessibility fallback, not the primary UI.
 - Add PWA manifest + service worker for installable/offline web.
 **Impact:** the deployed URL becomes genuinely useful.

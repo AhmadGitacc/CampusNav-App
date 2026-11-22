@@ -25,11 +25,11 @@ import type { LatLon } from "@shared/types";
 
 /**
  * Pick a building's coordinates on a map instead of typing two numbers
- * (Feature 10 §7.4). Tap or drag the pin; the readout updates live; confirming
+ * (Feature 10 §7.4). Tap the map to place or move the pin; the readout updates live; confirming
  * writes the pair back into the form's lat/lng fields.
  *
  * Platform split: the map itself lives in `LocationPickerMap` (.native/.web),
- * because `react-native-maps` crashes on web at import time. On web the same
+ * because the native map module crashes on web at import time. On web the same
  * modal shows the manual lat/lng inputs instead of pretending to be a map.
  */
 
@@ -139,7 +139,7 @@ export function LocationPickerModal({
         <Text style={styles.subtitle}>
           {Platform.OS === "web"
             ? "Enter the coordinates, or use the campus centre."
-            : "Tap the map to drop the pin, or drag it into place."}
+            : "Tap the map to drop the pin, then tap again to move it."}
         </Text>
       </View>
       <Pressable
@@ -258,7 +258,7 @@ export function LocationPickerModal({
               <Text style={styles.readoutValue}>
                 {point.lat.toFixed(5)}, {point.lng.toFixed(5)}
               </Text>
-              <Text style={styles.readoutHint}>Drag the pin to fine-tune</Text>
+              <Text style={styles.readoutHint}>Tap the map to fine-tune</Text>
             </View>
           ) : (
             <View style={styles.readout}>

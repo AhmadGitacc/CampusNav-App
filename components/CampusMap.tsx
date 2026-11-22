@@ -8,3 +8,4 @@
  * from static analysis.
  */
 export { default } from "./CampusMap.native";
+export type { CampusMapHandle } from "./CampusMap.native";

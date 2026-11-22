@@ -32,7 +32,7 @@ import {
 import * as Haptics from "expo-haptics";
 import Animated, { SlideInDown, SlideOutDown } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
-import CampusMap from "@/components/CampusMap";
+import CampusMap, { type CampusMapHandle } from "@/components/CampusMap";
 import { MarkerIcon } from "@/components/MarkerIcon";
 import { OfflineBanner } from "@/components/OfflineBanner";
 import { RouteProgressBar } from "@/components/RouteProgressBar";
@@ -103,7 +103,7 @@ export default function MapScreen() {
     [favoriteRows]
   );
 
-  const mapRef = useRef<any>(null);
+  const mapRef = useRef<CampusMapHandle | null>(null);
   // Follow bookkeeping: programmatic moves must not read as a manual pan, and
   // a recent pan suspends follow so the walker can look around freely.
   const programMoveUntilRef = useRef(0);
