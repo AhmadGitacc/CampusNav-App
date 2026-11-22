@@ -235,8 +235,10 @@ function serveLandingPage({
   const html = landingPageTemplate
     .replace(/BASE_URL_PLACEHOLDER/g, baseUrl)
     .replace(/EXPS_URL_PLACEHOLDER/g, expsUrl)
-    .replace(/APP_NAME_PLACEHOLDER/g, appName);
+    .replace(/APP_NAME_PLACEHOLDER/g, appName)
+    .replace(/__APP_SCHEME__/g, getAppScheme());
 
+  res.setHeader("Referrer-Policy", "no-referrer");
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.status(200).send(html);
 }

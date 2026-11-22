@@ -329,6 +329,21 @@
     </style>
   </head>
   <body>
+    <script>
+      // Supabase magic links fall back to the Site URL when a redirect URL is
+      // not allow-listed. If tokens landed here, hand them to the app so
+      // sign-in still completes instead of showing this landing page.
+      (function () {
+        var raw = window.location.hash.replace(/^#/, '') ||
+          window.location.search.replace(/^\?/, '');
+        if (!raw) return;
+        var params = new URLSearchParams(raw);
+        if ((params.get('access_token') && params.get('refresh_token')) || params.get('token_hash')) {
+          window.__campusNavAuthRedirect = true;
+          window.location.replace('__APP_SCHEME__://auth/callback#' + raw);
+        }
+      })();
+    </script>
     <div class="wrapper">
       <div class="loading" id="loading">
         <div class="spinner"></div>
@@ -396,6 +411,8 @@
     <script src="https://unpkg.com/qr-code-styling@1.6.0/lib/qr-code-styling.js"></script>
     <script>
       (function () {
+        if (window.__campusNavAuthRedirect) return;
+
         const ua = navigator.userAgent;
         const loadingEl = document.getElementById("loading");
         const contentEl = document.getElementById("content");
